@@ -1,1267 +1,284 @@
-import React, { useMemo, useState, useRef, useCallback } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card'
+import React, { useState, useMemo, useRef } from 'react'
 import { Button } from './ui/Button'
-import { Select } from './ui/Select'
-import { Alert, AlertDescription } from './ui/Alert'
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  Cell,
-  ReferenceLine,
-  RadialBarChart,
-  RadialBar,
-  PieChart,
-  Pie,
-} from 'recharts'
-import { 
-  Printer, 
-  CheckCircle2, 
-  XCircle, 
-  AlertTriangle, 
-  User,
-  FileText,
-  TrendingUp,
-  TrendingDown,
-  Award,
-  Target,
-  Download,
-  FileSpreadsheet,
-  Edit3,
-  BarChart3,
-  Users,
-  GraduationCap,
-  Calendar,
-  Building2,
-  ImageDown,
-  RotateCcw,
-  ArrowLeft
-} from 'lucide-react'
+import { Download, Printer, FileSpreadsheet, LayoutGrid } from 'lucide-react'
 import jsPDF from 'jspdf'
 import html2canvas from 'html2canvas'
 import * as XLSX from 'xlsx'
-import { buildAnalysis, buildStudentComment } from '../core/scoring'
-import { calculateItemDifficulty } from '../core/itemStats'
-import { calculateOutcomeStats, buildFailureMatrix } from '../core/outcomeStats'
+import { buildAnalysis } from '../core/analysisEngine'
 
-// Pastel renk paleti
-const COLORS = {
-  primary: '#3b82f6',
-  success: '#10b981',
-  warning: '#f59e0b',
-  danger: '#ef4444',
-  purple: '#8b5cf6',
-  pink: '#ec4899',
-  pastel: ['#93c5fd', '#86efac', '#fcd34d', '#fca5a5', '#c4b5fd', '#f9a8d4'],
-  chart: ['#60a5fa', '#34d399', '#fbbf24', '#f87171', '#a78bfa', '#f472b6']
-}
+// Components
+import { AnalysisSidebar } from './analysis/AnalysisSidebar'
+import { SummarySection } from './analysis/SummarySection'
+import { ClassAnalysisSection } from './analysis/ClassAnalysisSection'
+import { OutcomeAnalysisSection } from './analysis/OutcomeAnalysisSection'
+import { ItemAnalysisSection } from './analysis/ItemAnalysisSection'
+import { StudentReportSection } from './analysis/StudentReportSection'
+import ReportPrintView from './report/ReportPrintView'
 
-// ===== TÜRKÇE KARAKTER DÖNÜŞTÜRME (jsPDF için) =====
-// jsPDF varsayılan fontlar Türkçe karakterleri desteklemiyor
-// Bu fonksiyon Türkçe karakterleri ASCII eşdeğerlerine çevirir
-const toAscii = (str) => {
-  if (!str) return ''
-  return String(str)
-    .replace(/ı/g, 'i')
-    .replace(/İ/g, 'I')
-    .replace(/ş/g, 's')
-    .replace(/Ş/g, 'S')
-    .replace(/ğ/g, 'g')
-    .replace(/Ğ/g, 'G')
-    .replace(/ü/g, 'u')
-    .replace(/Ü/g, 'U')
-    .replace(/ö/g, 'o')
-    .replace(/Ö/g, 'O')
-    .replace(/ç/g, 'c')
-    .replace(/Ç/g, 'C')
-}
-
-const AnalysisDashboard = ({ config, questions = [], students, grades, onBack, onEditGrades, onNewAnalysis }) => {
-  const [activeTab, setActiveTab] = useState('class') // 'class' | 'student'
-  const [selectedStudentId, setSelectedStudentId] = useState('')
+const AnalysisDashboard = ({ students, grades, questions, config }) => {
+  const [activeSection, setActiveSection] = useState('ozet')
   const [isExporting, setIsExporting] = useState(false)
+  const printRef = useRef(null)
 
-  const classTableRef = useRef(null)
-  const studentCardRef = useRef(null)
-  const chartsRef = useRef(null)
-  const fullExportRef = useRef(null)
-  const remedialCardsRef = useRef(null)
-
+  // 1. Core Analysis Calculation
   const analysis = useMemo(() => {
-    return buildAnalysis({ config, students, grades, questions })
-  }, [config, students, grades, questions])
-
-  const outcomeStats = useMemo(() => {
-    return calculateOutcomeStats({
-      outcomes: config.outcomes || [],
-      questions,
+    return buildAnalysis({
       students,
       grades,
-      outcomeMasteryThreshold: config.outcomeMasteryThreshold ?? 50,
-    })
-  }, [config.outcomes, config.outcomeMasteryThreshold, questions, students, grades])
-
-  const failureMatrix = useMemo(() => {
-    return buildFailureMatrix({
-      outcomes: config.outcomes || [],
       questions,
-      students,
-      grades,
-      outcomeMasteryThreshold: config.outcomeMasteryThreshold ?? 50,
-    })
-  }, [config.outcomes, config.outcomeMasteryThreshold, questions, students, grades])
-
-  const itemStats = useMemo(() => {
-    return calculateItemDifficulty({ questions, students, grades })
-  }, [questions, students, grades])
-
-  const outcomeMaxScores = useMemo(() => {
-    return outcomeStats.map((item) => item.maxScore)
-  }, [outcomeStats])
-
-  const selectedStudent = useMemo(() => {
-    if (!selectedStudentId) return null
-    return analysis.studentResults.find((student) => student.id === selectedStudentId) || null
-  }, [selectedStudentId, analysis.studentResults])
-
-  const studentComment = useMemo(() => {
-    return buildStudentComment({
-      student: selectedStudent,
-      classAverage: analysis.classAverage,
       outcomes: config.outcomes || [],
-      outcomeScores: outcomeMaxScores,
+      generalPassingScore: config.generalPassingScore || 50,
+      outcomeMasteryThreshold: config.outcomeMasteryThreshold || 50
     })
-  }, [selectedStudent, analysis.classAverage, config.outcomes, outcomeMaxScores])
+  }, [students, grades, questions, config])
 
-  const scoreDistribution = useMemo(() => {
-    return analysis.scoreDistribution.map((entry, index) => ({
-      ...entry,
-      color: COLORS.chart[index] || COLORS.primary,
-    }))
-  }, [analysis.scoreDistribution])
-
+  // 2. Export Functions
   const handlePrint = () => {
     window.print()
   }
 
-  const exportClassToPDF = () => {
-    console.log('PDF export (sinif) gecici olarak devre disi.')
-    alert('PDF export bu surumde gecici olarak devre disi.')
-  }
+  const exportToPDF = async () => {
+    setIsExporting(true)
 
-  const exportClassToExcel = () => {
-    console.log('Excel export (sinif) gecici olarak devre disi.')
-    alert('Excel export bu surumde gecici olarak devre disi.')
-  }
+    const container = printRef.current
+    if (!container) {
+      console.error("Print reference not found")
+      alert("PDF hazırlanamadı: Bileşen yüklenemedi.")
+      setIsExporting(false)
+      return
+    }
 
-  const exportChartsToImage = () => {
-    console.log('Grafik export (png) gecici olarak devre disi.')
-    alert('Grafik export bu surumde gecici olarak devre disi.')
-  }
+    // Store original styles for restoration
+    const originalStyles = {
+      position: container.style.position,
+      left: container.style.left,
+      top: container.style.top,
+      visibility: container.style.visibility,
+      display: container.style.display,
+      width: container.style.width,
+      height: container.style.height,
+      overflow: container.style.overflow,
+      opacity: container.style.opacity,
+      pointerEvents: container.style.pointerEvents,
+      zIndex: container.style.zIndex
+    }
 
-  const exportFullReportToImage = () => {
-    console.log('Tam rapor export (png) gecici olarak devre disi.')
-    alert('Tam rapor export bu surumde gecici olarak devre disi.')
-  }
+    try {
+      // Make container visible for capture (offscreen but fully rendered)
+      container.style.position = 'fixed'
+      container.style.left = '-10000px'
+      container.style.top = '0'
+      container.style.visibility = 'visible'
+      container.style.display = 'block'
+      container.style.width = '794px'
+      container.style.height = 'auto'
+      container.style.overflow = 'visible'
+      container.style.opacity = '1'
+      container.style.pointerEvents = 'none'
+      container.style.zIndex = '-1'
 
-  const exportFullReportToPDF = () => {
-    console.log('Tam rapor export (pdf) gecici olarak devre disi.')
-    alert('Tam rapor export bu surumde gecici olarak devre disi.')
-  }
-
-  const exportStudentToPDF = () => {
-    console.log('PDF export (ogrenci) gecici olarak devre disi.')
-    alert('PDF export bu surumde gecici olarak devre disi.')
-  }
-
-  const exportStudentToExcel = () => {
-    console.log('Excel export (ogrenci) gecici olarak devre disi.')
-    alert('Excel export bu surumde gecici olarak devre disi.')
-  }
-
-  const today = useMemo(() => {
-    if (config.examDate) {
-      const parsed = new Date(config.examDate)
-      if (!Number.isNaN(parsed.getTime())) {
-        return parsed.toLocaleDateString('tr-TR', {
-          day: 'numeric',
-          month: 'long',
-          year: 'numeric',
-        })
+      // Wait for fonts and rendering
+      if (document.fonts?.ready) {
+        await document.fonts.ready
       }
-    }
-    return new Date().toLocaleDateString('tr-TR', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-    })
-  }, [config.examDate])
+      // Double requestAnimationFrame for layout flush
+      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+      await new Promise(resolve => setTimeout(resolve, 300))
 
-  // Custom Tooltip
-  const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-white/95 backdrop-blur-sm p-3 rounded-xl shadow-lg border border-slate-200">
-          <p className="font-semibold text-slate-800">{label}</p>
-          {payload.map((entry, index) => (
-            <p key={index} style={{ color: entry.color }} className="text-sm">
-              {entry.name}: {typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value}
-            </p>
-          ))}
-        </div>
-      )
+      const doc = new jsPDF('p', 'mm', 'a4')
+      const pages = container.querySelectorAll('.a4-page')
+      const pdfWidth = doc.internal.pageSize.getWidth()
+      const pdfHeight = doc.internal.pageSize.getHeight()
+
+      console.log('[PDF] Pages found:', pages.length)
+
+      if (pages.length === 0) {
+        throw new Error("Yazdırılacak sayfa bulunamadı (.a4-page elementi yok)")
+      }
+
+      let addedPages = 0
+      for (let i = 0; i < pages.length; i++) {
+        const pageEl = pages[i]
+
+        // Force page dimensions if zero
+        let rect = pageEl.getBoundingClientRect()
+        console.log(`[PDF] Page ${i + 1} initial rect:`, rect.width, 'x', rect.height)
+
+        if (rect.height < 10) {
+          // Force explicit dimensions
+          pageEl.style.minHeight = '1123px'
+          pageEl.style.height = '1123px'
+          pageEl.style.width = '794px'
+          pageEl.style.display = 'block'
+          pageEl.style.visibility = 'visible'
+
+          // Re-flush layout
+          await new Promise(r => requestAnimationFrame(r))
+          rect = pageEl.getBoundingClientRect()
+          console.log(`[PDF] Page ${i + 1} after fix:`, rect.width, 'x', rect.height)
+        }
+
+        if (rect.height < 10) {
+          console.error(`[PDF] Page ${i + 1} still has zero height, skipping`)
+          continue
+        }
+
+        if (addedPages > 0) doc.addPage()
+
+        const canvas = await html2canvas(pageEl, {
+          scale: 2,
+          backgroundColor: '#ffffff',
+          useCORS: true,
+          allowTaint: false,
+          imageTimeout: 15000,
+          logging: false
+        })
+
+        console.log(`[PDF] Canvas ${i + 1}:`, canvas?.width, 'x', canvas?.height)
+
+        if (!canvas || canvas.width < 10 || canvas.height < 10) {
+          throw new Error(`Canvas boş (sayfa ${i + 1}): ${canvas?.width}x${canvas?.height}`)
+        }
+
+        let imgData
+        try {
+          imgData = canvas.toDataURL('image/jpeg', 0.92)
+        } catch (e) {
+          throw new Error(`toDataURL hatası (sayfa ${i + 1}): ${e?.message || e}`)
+        }
+
+        if (!imgData || !imgData.startsWith('data:image/')) {
+          throw new Error(`Geçersiz dataURL (sayfa ${i + 1})`)
+        }
+
+        doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
+        addedPages++
+      }
+
+      if (addedPages === 0) {
+        throw new Error("Hiçbir sayfa PDF'e eklenemedi")
+      }
+
+      doc.save(`NetAnaliz_Rapor_${new Date().toISOString().slice(0, 10)}.pdf`)
+      console.log('[PDF] Export complete!', addedPages, 'pages')
+    } catch (error) {
+      console.error('[PDF] Export Error:', error)
+      alert('PDF oluşturulurken bir hata oluştu: ' + error.message)
+    } finally {
+      // Restore original styles
+      container.style.position = originalStyles.position
+      container.style.left = originalStyles.left
+      container.style.top = originalStyles.top
+      container.style.visibility = originalStyles.visibility
+      container.style.display = originalStyles.display
+      container.style.width = originalStyles.width
+      container.style.height = originalStyles.height
+      container.style.overflow = originalStyles.overflow
+      container.style.opacity = originalStyles.opacity
+      container.style.pointerEvents = originalStyles.pointerEvents
+      container.style.zIndex = originalStyles.zIndex
+      setIsExporting(false)
     }
-    return null
+  }
+
+  const exportToExcel = () => {
+    const ws = XLSX.utils.json_to_sheet(analysis.studentResults.map(s => ({
+      'Öğrenci No': s.no || s.studentNumber,
+      'Ad Soyad': s.name,
+      'Puan': s.total,
+      'Durum': s.isPassing ? 'Geçti' : 'Kaldı',
+      'Sıralama': s.rank
+    })))
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Sinif_Listesi")
+    XLSX.writeFile(wb, "NetAnaliz_Sinif_Listesi.xlsx")
+  }
+
+  const renderSection = () => {
+    switch (activeSection) {
+      case 'ozet': return <SummarySection analysis={analysis} config={config} />
+      case 'sinif': return <ClassAnalysisSection analysis={analysis} config={config} />
+      case 'kazanim': return <OutcomeAnalysisSection analysis={analysis} config={config} />
+      case 'soru': return <ItemAnalysisSection analysis={analysis} config={config} />
+      case 'karne': return <StudentReportSection analysis={analysis} config={config} />
+      default: return <SummarySection analysis={analysis} config={config} />
+    }
   }
 
   return (
-    <div className="max-w-full mx-auto space-y-6">
-      {/* Üst Navigasyon Bar - Apple Style */}
-      <div className="no-print">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-          {/* Sol: Tab Switcher */}
-          <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-full">
-            <button
-              onClick={() => setActiveTab('class')}
-              className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-all ${
-                activeTab === 'class'
-                  ? 'bg-white text-gray-900 shadow-apple'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <Users className="w-4 h-4" />
-              Sınıf Analizi
-            </button>
-            <button
-              onClick={() => setActiveTab('student')}
-              className={`flex items-center gap-2 px-5 py-2 rounded-full text-sm font-medium transition-all ${
-                activeTab === 'student'
-                  ? 'bg-white text-gray-900 shadow-apple'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              <GraduationCap className="w-4 h-4" />
-              Öğrenci Karnesi
-            </button>
-        </div>
-
-          {/* Sağ: Aksiyon Butonları */}
+    <div className="min-h-screen bg-slate-50/50 pb-20">
+      {/* Top Header */}
+      <div className="bg-white border-b border-slate-200 sticky top-0 z-30 px-4 md:px-8 py-4 shadow-sm no-print screen-only">
+        <div className="max-w-[1600px] mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <Button 
-              onClick={onEditGrades}
-              variant="ghost"
-              size="sm"
-              className="text-gray-600"
-            >
-              <Edit3 className="w-4 h-4 mr-1.5" />
-              Notları Düzenle
-            </Button>
-            <Button 
-              onClick={onBack}
-              variant="ghost"
-              size="sm"
-              className="text-gray-500"
-            >
-              <ArrowLeft className="w-4 h-4 mr-1" />
-              Geri
-            </Button>
-            {onNewAnalysis && (
-              <Button 
-                onClick={onNewAnalysis}
-                variant="secondary"
-                size="sm"
-              >
-                <RotateCcw className="w-4 h-4 mr-1.5" />
-                Yeni Analiz
-              </Button>
-            )}
+            <div className="p-2 bg-blue-100 rounded-lg">
+              <LayoutGrid className="w-6 h-6 text-blue-600" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-slate-900 leading-none">NetAnaliz Raporu</h1>
+              <p className="text-xs text-slate-500 mt-1">{config.schoolName || 'Okul Adı Girilmedi'} • {new Date().toLocaleDateString('tr-TR')}</p>
+            </div>
           </div>
-        </div>
-      </div>
 
-      {/* ==================== TAB 1: SINIF GENEL DURUMU ==================== */}
-      {activeTab === 'class' && (
-        <div className="space-y-6">
-          {/* Aksiyon Butonları */}
-          <div className="no-print flex justify-end gap-2">
-            <Button 
-              onClick={handlePrint} 
-              variant="outline"
-              size="sm"
-            >
-              <Printer className="w-4 h-4 mr-1.5" />
-              Yazdır
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={handlePrint} className="hidden md:flex">
+              <Printer className="w-4 h-4 mr-2" /> Yazdır
             </Button>
-            <Button 
-              onClick={exportClassToPDF} 
-              variant="outline"
+            <Button variant="outline" size="sm" onClick={exportToExcel} className="hidden md:flex border-green-200 text-green-700 hover:bg-green-50">
+              <FileSpreadsheet className="w-4 h-4 mr-2" /> Excel
+            </Button>
+            <Button
+              variant="default"
               size="sm"
-              className="border-blue-200 text-blue-600 hover:bg-blue-50"
+              onClick={exportToPDF}
               disabled={isExporting}
+              className="bg-blue-600 hover:bg-blue-700 group min-w-[120px]"
             >
-              <Download className="w-4 h-4 mr-1.5" />
-              {isExporting ? 'İşleniyor...' : 'PDF'}
-            </Button>
-            <Button 
-              onClick={exportClassToExcel} 
-              variant="outline"
-              size="sm"
-              className="border-emerald-200 text-emerald-600 hover:bg-emerald-50"
-            >
-              <FileSpreadsheet className="w-4 h-4 mr-1.5" />
-              Excel
-          </Button>
-          </div>
-
-          {/* ===== RESMİ BELGE ===== */}
-          <div ref={classTableRef} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            {/* Başlık Banner - Kompakt ve Okunabilir */}
-            <div className="bg-gradient-to-r from-blue-600 to-blue-500 px-5 py-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                    <BarChart3 className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <h1 className="text-lg font-bold text-white leading-tight">{config.schoolName || 'Okul Adı'}</h1>
-                    <p className="text-sm text-white/90">{config.gradeLevel} - {config.courseName} Dersi</p>
-                  </div>
-                </div>
-                <div className="text-right text-xs text-white/90">
-                  <div className="flex items-center gap-1.5 justify-end mb-0.5">
-                    <Calendar className="w-3.5 h-3.5" />
-                    {today}
-                  </div>
-                  <div className="flex items-center gap-1.5 justify-end">
-                    <User className="w-3.5 h-3.5" />
-                    {config.teacherName || 'Öğretmen'}
-                  </div>
-                </div>
-        </div>
-      </div>
-
-            {/* Özet Kartları */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6 bg-slate-50/50">
-              <div className="bg-white p-4 rounded-xl shadow-soft border border-slate-100">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <Users className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">Öğrenci</p>
-                    <p className="text-xl font-bold text-slate-800">{students.length}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-white p-4 rounded-xl shadow-soft border border-emerald-100">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-emerald-100 rounded-lg flex items-center justify-center">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">Başarılı</p>
-                    <p className="text-xl font-bold text-emerald-600">
-                      {analysis.passingCount} <span className="text-sm font-normal">(%{analysis.passRate.toFixed(0)})</span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-white p-4 rounded-xl shadow-soft border border-red-100">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-red-100 rounded-lg flex items-center justify-center">
-                    <XCircle className="w-5 h-5 text-red-600" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">Başarısız</p>
-                    <p className="text-xl font-bold text-red-600">
-                      {analysis.failingCount} <span className="text-sm font-normal">(%{(100 - analysis.passRate).toFixed(0)})</span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-              <div className="bg-white p-4 rounded-xl shadow-soft border border-purple-100">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
-                    <Target className="w-5 h-5 text-purple-600" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">Ortalama</p>
-                    <p className="text-xl font-bold text-purple-600">
-                      {analysis.classAverage.toFixed(1)} <span className="text-sm font-normal">/ {analysis.maxTotalScore}</span>
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Ana Tablo */}
-            <div className="p-6 overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-12">Sıra</th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-blue-600 uppercase tracking-wider w-20">Okul No</th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[150px]">Adı Soyadı</th>
-                    {config.outcomes.map((_, index) => (
-                      <th 
-                        key={index} 
-                        className="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-14"
-                        title={config.outcomes[index]}
-                      >
-                        <div>S{index + 1}</div>
-                        <div className="text-[10px] font-normal text-gray-400 normal-case">({outcomeStats[index]?.maxScore ?? 0})</div>
-                      </th>
-                    ))}
-                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-16 bg-gray-50">
-                      <div>Toplam</div>
-                      <div className="text-[10px] font-normal text-gray-400 normal-case">({analysis.maxTotalScore})</div>
-                    </th>
-                    <th className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-20 bg-gray-50">Sonuç</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {analysis.studentResults.map((student, idx) => (
-                    <tr 
-                      key={student.id} 
-                      className="hover:bg-gray-50 transition-colors"
-                    >
-                      <td className="px-3 py-3 text-center text-gray-500">
-                        {idx + 1}
-                      </td>
-                      <td className="px-3 py-3 text-center font-medium text-blue-600">
-                        {student.studentNumber || student.no || '-'}
-                      </td>
-                      <td className="px-3 py-3 font-medium text-gray-900">
-                        {student.name}
-                      </td>
-                      {config.outcomes.map((_, outcomeIndex) => {
-                        const score = student.outcomeScores[outcomeIndex]
-                        const maxScore = outcomeStats[outcomeIndex]?.maxScore ?? 0
-                        const pct = (score / maxScore) * 100
-                        return (
-                          <td 
-                            key={outcomeIndex} 
-                            className={`px-2 py-3 text-center ${
-                              pct < 40 ? 'text-red-600 font-medium' : pct >= 80 ? 'text-green-600 font-medium' : 'text-gray-700'
-                            }`}
-                          >
-                            {score.toFixed(score % 1 === 0 ? 0 : 1)}
-                          </td>
-                        )
-                      })}
-                      <td className="px-3 py-3 text-center font-semibold text-gray-900 bg-gray-50">
-                        {student.total.toFixed(1)}
-                      </td>
-                      <td className={`px-3 py-3 text-center font-medium ${
-                        student.isPassing 
-                          ? 'text-green-600' 
-                          : 'text-red-600'
-                      }`}>
-                        {student.isPassing ? 'Geçti' : 'Kaldı'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-gray-200 bg-gray-50">
-                    <td colSpan={3} className="px-3 py-3 text-right font-medium text-gray-500 uppercase text-xs tracking-wider">
-                      Sınıf Ortalaması
-                    </td>
-                    {config.outcomes.map((_, outcomeIndex) => {
-                      const avgScore = outcomeStats[outcomeIndex]?.avgScore ?? 0
-                      return (
-                        <td key={outcomeIndex} className="px-2 py-3 text-center text-gray-600 font-medium">
-                          {avgScore.toFixed(1)}
-                        </td>
-                      )
-                    })}
-                    <td className="px-3 py-3 text-center font-bold text-primary">
-                      {analysis.classAverage.toFixed(1)}
-                    </td>
-                    <td className="px-3 py-3 text-center font-medium text-gray-600">
-                      %{analysis.passRate.toFixed(0)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-
-            {/* İmza Alanları */}
-            <div className="p-6 pt-0">
-              <div className="mt-8 pt-6 border-t-2 border-dashed border-slate-200">
-                <div className="flex justify-between items-end">
-                  <div className="text-center w-48">
-                    <div className="border-b-2 border-slate-400 mb-2 pb-8"></div>
-                    <p className="font-semibold text-slate-800">{config.teacherName || 'Ders Öğretmeni'}</p>
-                    <p className="text-xs text-slate-500">Ders Öğretmeni</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-xs text-slate-400">NetAnaliz © 2026</p>
-                  </div>
-                  <div className="text-center w-48">
-                    <div className="border-b-2 border-slate-400 mb-2 pb-8"></div>
-                    <p className="font-semibold text-slate-800">{config.principalName || 'Okul Müdürü'}</p>
-                    <p className="text-xs text-slate-500">Okul Müdürü</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Alarm Veren Konular */}
-          {analysis.troubledOutcomes.length > 0 && (
-            <Card className="no-print border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50">
-          <CardHeader className="pb-3">
-                <CardTitle className="flex items-center text-amber-700 text-lg">
-                  <AlertTriangle className="w-5 h-5 mr-2" />
-                  Dikkat Gerektiren Kazanımlar
-            </CardTitle>
-          </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {analysis.troubledOutcomes.map((outcome, idx) => (
-                    <div 
-                      key={idx} 
-                      className="flex items-center justify-between p-4 bg-white rounded-xl border border-amber-200 shadow-soft"
-                    >
-                      <div>
-                        <span className="font-bold text-amber-700">S{outcome.index + 1}</span>
-                        <p className="text-xs text-slate-500 mt-1 line-clamp-1">{outcome.outcome}</p>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-2xl font-bold text-amber-600">
-                          %{outcome.failRate.toFixed(0)}
-                        </span>
-                        <p className="text-[10px] text-slate-500">başarısız</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-        </Card>
-          )}
-
-          {/* ===== EXPORT WRAPPER - Premium Rapor Alanı ===== */}
-          <div ref={fullExportRef} className="bg-white rounded-2xl">
-            {/* PREMIUM BANNER - Beyaz arka plan, Resmi Evrak Başlığı */}
-            <div className="bg-white border-b-2 border-gray-200 p-8 print:block">
-              <div className="text-center space-y-3">
-                {/* Okul Adı - En Büyük */}
-                <h1 className="text-2xl font-bold text-gray-900 tracking-tight uppercase">
-                  {config.schoolName || 'Okul Adı'}
-                </h1>
-                {/* Alt çizgi dekorasyon */}
-                <div className="flex justify-center">
-                  <div className="w-24 h-1 bg-gray-300 rounded-full"></div>
-                </div>
-                {/* Sınav Bilgisi */}
-                <h2 className="text-lg font-semibold text-gray-700">
-                  {config.academicYear || '2025-2026'} Eğitim Yılı - {config.semester || '1. Dönem'}
-                </h2>
-                <h2 className="text-xl font-bold text-gray-800">
-                  {config.courseName || 'Ders Adı'} Dersi - {config.examNumber || '1. Sınav'} Analiz Raporu
-                </h2>
-                {/* Öğretmen ve Sınıf Bilgisi */}
-                <div className="flex justify-center gap-8 text-sm text-gray-600 pt-2">
-                  <span><strong>Sınıf:</strong> {config.gradeLevel || '-'}</span>
-                  <span><strong>Ders Öğretmeni:</strong> {config.teacherName || '-'}</span>
-                  <span><strong>Tarih:</strong> {today}</span>
-                </div>
-              </div>
-      </div>
-
-            {/* Grafikler Başlık + Export Butonları */}
-            <div className="no-print flex items-center justify-between p-4 border-b border-gray-100">
-              <h3 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-primary" />
-                Sınıf Grafikleri & Analiz Raporu
-              </h3>
-              <div className="flex items-center gap-2">
-                <Button 
-                  onClick={exportChartsToImage}
-                  variant="outline"
-                  size="sm"
-                  className="border-indigo-200 text-indigo-600 hover:bg-indigo-50"
-                  disabled={isExporting}
-                >
-                  <ImageDown className="w-4 h-4 mr-1.5" />
-                  Grafik PNG
-                </Button>
-                <Button 
-                  onClick={exportFullReportToImage}
-                  variant="outline"
-                  size="sm"
-                  className="border-purple-200 text-purple-600 hover:bg-purple-50"
-                  disabled={isExporting}
-                >
-                  <ImageDown className="w-4 h-4 mr-1.5" />
-                  Tam Rapor PNG
-                </Button>
-                <Button 
-                  onClick={exportFullReportToPDF}
-                  variant="outline"
-                  size="sm"
-                  className="border-blue-200 text-blue-600 hover:bg-blue-50"
-                  disabled={isExporting}
-                >
-                  <Download className="w-4 h-4 mr-1.5" />
-                  {isExporting ? 'İşleniyor...' : 'PDF Rapor'}
-                </Button>
-              </div>
-            </div>
-
-            {/* Grafikler */}
-            <div ref={chartsRef} className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-6 bg-white">
-            {/* Histogram */}
-            <Card className="overflow-hidden">
-              <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-slate-100">
-                <CardTitle className="flex items-center text-slate-800">
-                  <TrendingUp className="w-5 h-5 mr-2 text-blue-500" />
-                  Başarı Dağılımı
-                </CardTitle>
-                <CardDescription>Puan aralıklarına göre öğrenci sayısı</CardDescription>
-          </CardHeader>
-              <CardContent className="pt-6">
-                <ResponsiveContainer width="100%" height={320}>
-                  <BarChart data={scoreDistribution} barCategoryGap="20%" margin={{ bottom: 20 }}>
-                    <defs>
-                      <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#60a5fa" stopOpacity={1}/>
-                        <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.8}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis 
-                      dataKey="label" 
-                      tick={{ fill: '#64748b', fontSize: 11 }}
-                      axisLine={{ stroke: '#cbd5e1' }}
-                      angle={-45}
-                      textAnchor="end"
-                      height={60}
-                      interval={0}
-                    />
-                    <YAxis 
-                      allowDecimals={false}
-                      tick={{ fill: '#64748b', fontSize: 12 }}
-                      axisLine={{ stroke: '#cbd5e1' }}
-                    />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Bar 
-                      dataKey="count" 
-                      name="Öğrenci Sayısı" 
-                      radius={[8, 8, 0, 0]}
-                    >
-                      {scoreDistribution.map((entry, index) => (
-                        <Cell key={index} fill={entry.color} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-            {/* Kazanım Başarı Grafiği */}
-            <Card className="overflow-hidden">
-              <CardHeader className="bg-gradient-to-r from-emerald-50 to-teal-50 border-b border-slate-100">
-                <CardTitle className="flex items-center text-slate-800">
-                  <Target className="w-5 h-5 mr-2 text-emerald-500" />
-                  Kazanım Başarı Oranları
-                </CardTitle>
-                <CardDescription>Her kazanım için sınıf başarı yüzdesi</CardDescription>
-          </CardHeader>
-              <CardContent className="pt-6">
-                <ResponsiveContainer width="100%" height={Math.max(280, outcomeStats.length * 35)}>
-                  <BarChart 
-                    data={outcomeStats.map((o, i) => ({
-                      name: `S${i + 1}`,
-                      başarı: o.successRate,
-                    }))}
-                    layout="vertical"
-                    barCategoryGap="15%"
-                    margin={{ left: 10, right: 20 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
-                    <XAxis 
-                      type="number" 
-                      domain={[0, 100]}
-                      tick={{ fill: '#64748b', fontSize: 12 }}
-                      axisLine={{ stroke: '#cbd5e1' }}
-                    />
-                    <YAxis 
-                      type="category" 
-                      dataKey="name" 
-                      width={35}
-                      tick={{ fill: '#64748b', fontSize: 12 }}
-                      axisLine={{ stroke: '#cbd5e1' }}
-                    />
-                    <Tooltip content={<CustomTooltip />} />
-                    <ReferenceLine 
-                      x={config.outcomeMasteryThreshold || 50} 
-                      stroke="#f59e0b" 
-                      strokeDasharray="5 5"
-                      strokeWidth={2}
-                    />
-                    <Bar 
-                      dataKey="başarı" 
-                      name="Başarı %" 
-                      radius={[0, 6, 6, 0]}
-                    >
-                      {outcomeStats.map((o, index) => (
-                        <Cell 
-                          key={index} 
-                          fill={o.successRate >= (config.outcomeMasteryThreshold || 50) ? '#10b981' : '#ef4444'} 
-                        />
-                      ))}
-                    </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-          {/* Soru Zorluk Oranları */}
-          <Card className="overflow-hidden">
-            <CardHeader className="bg-gradient-to-r from-slate-50 to-gray-50 border-b border-slate-100">
-              <CardTitle className="flex items-center text-slate-800">
-                <BarChart3 className="w-5 h-5 mr-2 text-slate-500" />
-                {"Soru Zorluk Oranlar\u0131"}
-              </CardTitle>
-              <CardDescription>{"Her soru i\u00e7in zorluk y\u00fczdesi ve ortalama puan"}</CardDescription>
-            </CardHeader>
-            <CardContent className="pt-6">
-              {itemStats.length === 0 ? (
-                <div className="text-sm text-slate-500">{"Soru blueprint bulunamad\u0131."}</div>
+              {isExporting ? (
+                <span className="flex items-center">Hazırlanıyor...</span>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wider">
-                          <th className="px-3 py-2 text-left">Soru</th>
-                          <th className="px-3 py-2 text-left">Kazanım</th>
-                          <th className="px-3 py-2 text-center">Max</th>
-                          <th className="px-3 py-2 text-center">Zorluk %</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {itemStats.map((item) => {
-                          const outcomeIndex = item.outcomeId !== '' ? Number(item.outcomeId) : NaN
-                          const outcomeLabel = Number.isFinite(outcomeIndex)
-                            ? config.outcomes?.[outcomeIndex]
-                            : ''
-                          return (
-                            <tr key={item.qNo}>
-                              <td className="px-3 py-2 font-medium text-gray-900">Q{item.qNo}</td>
-                              <td className="px-3 py-2 text-gray-600 truncate max-w-[220px]" title={outcomeLabel || ''}>
-                                {outcomeLabel || '-'}
-                              </td>
-                              <td className="px-3 py-2 text-center text-gray-700">{item.maxScore}</td>
-                              <td className="px-3 py-2 text-center font-semibold text-slate-700">
-                                {item.difficulty.toFixed(1)}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="bg-slate-50 rounded-xl p-4">
-                    <ResponsiveContainer width="100%" height={320}>
-                      <BarChart
-                        data={itemStats.map((item) => ({
-                          name: `Q${item.qNo}`,
-                          zorluk: item.difficulty,
-                        }))}
-                        margin={{ left: 10, right: 20, bottom: 10 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis
-                          dataKey="name"
-                          tick={{ fill: '#64748b', fontSize: 12 }}
-                          axisLine={{ stroke: '#cbd5e1' }}
-                        />
-                        <YAxis
-                          domain={[0, 100]}
-                          tick={{ fill: '#64748b', fontSize: 12 }}
-                          axisLine={{ stroke: '#cbd5e1' }}
-                        />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Bar dataKey="zorluk" name="Zorluk %" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
+                <span className="flex items-center"><Download className="w-4 h-4 mr-2 group-hover:animate-bounce" /> PDF İndir</span>
               )}
-            </CardContent>
-          </Card>
-
-            {/* ===== KAZANIM BAZLI TELAFİ LİSTESİ (Failure Matrix) ===== */}
-            <div ref={remedialCardsRef} className="p-6 bg-white border-t border-gray-100">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-800 flex items-center gap-2">
-                  <Users className="w-5 h-5 text-primary" />
-                  Kazanım Bazlı Telafi Listesi
-                </h2>
-                <p className="text-sm text-gray-500">
-                  Her kazanımda %50'nin altında kalan öğrenciler
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {failureMatrix.map((item) => (
-                <div 
-                  key={item.index}
-                  className={`bg-white rounded-xl border shadow-sm transition-all duration-200 hover:shadow-md ${
-                    item.isAllSuccess ? 'border-emerald-200' : 'border-gray-100'
-                  }`}
-                >
-                  {/* Kart Başlığı */}
-                  <div className="p-4 border-b border-gray-100">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <h3 className="font-semibold text-gray-800 truncate">
-                          K{item.index + 1}: {item.outcome}
-                        </h3>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          Max Puan: {item.maxScore}
-                        </p>
-                        </div>
-                      {item.isAllSuccess ? (
-                        <span className="flex items-center gap-1 px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">
-                          <CheckCircle2 className="w-3 h-3" />
-                          Tam Başarı
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 px-2.5 py-1 bg-red-100 text-red-700 rounded-full text-xs font-medium">
-                          <XCircle className="w-3 h-3" />
-                          {item.failedCount} Öğrenci
-                        </span>
-                      )}
-                      </div>
-                      </div>
-
-                  {/* Progress Bar */}
-                  <div className="px-4 py-3">
-                    <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
-                      <span>Başarısızlık Oranı</span>
-                      <span className={item.failRate > 50 ? 'text-red-600 font-medium' : ''}>
-                        %{item.failRate.toFixed(0)}
-                      </span>
-                  </div>
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full rounded-full transition-all duration-500 ${
-                          item.isAllSuccess 
-                            ? 'bg-emerald-500' 
-                            : item.failRate > 50 
-                              ? 'bg-red-500' 
-                              : item.failRate > 25 
-                                ? 'bg-amber-500' 
-                                : 'bg-orange-400'
-                        }`}
-                        style={{ width: item.isAllSuccess ? '100%' : `${item.failRate}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Öğrenci Listesi */}
-                  <div className="px-4 pb-4">
-                    {item.isAllSuccess ? (
-                      <div className="flex items-center justify-center py-4 text-emerald-600">
-                        <CheckCircle2 className="w-5 h-5 mr-2" />
-                        <span className="font-medium">Tebrikler! Tüm öğrenciler başarılı.</span>
-                      </div>
-                    ) : (
-                      <div className="space-y-1.5">
-                        <p className="text-xs text-gray-500 font-medium">Telafi Gereken Öğrenciler:</p>
-                        <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto scrollbar-thin">
-                          {item.failedStudents.map((student) => {
-                            // İsmi kısalt: "Ahmet Mehmet Yılmaz" → "Ahmet M."
-                            const nameParts = student.name.split(' ')
-                            const shortName = nameParts.length > 1 
-                              ? `${nameParts[0]} ${nameParts[nameParts.length - 1].charAt(0)}.`
-                              : nameParts[0]
-                            
-                            return (
-                              <span 
-                                key={student.id}
-                                className="inline-flex items-center gap-0.5 px-1 py-0.5 bg-red-50 text-red-600 rounded text-[10px] border border-red-100"
-                                title={`${student.name} - Aldığı: ${student.score.toFixed(1)} / ${student.maxScore}`}
-                              >
-                                <span className="truncate max-w-[70px]">{shortName}</span>
-                                <span className="text-red-400">({student.score.toFixed(0)})</span>
-                              </span>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-              {/* Export Footer */}
-              <div className="mt-6 pt-4 border-t border-gray-100 text-center">
-                <p className="text-xs text-gray-400">
-                  NetAnaliz Raporu - Designed & Engineered by MRK Design
-                </p>
-              </div>
-            </div>
+            </Button>
           </div>
-          {/* ===== END EXPORT WRAPPER ===== */}
         </div>
-      )}
-
-      {/* ==================== TAB 2: ÖĞRENCİ KARNESİ ==================== */}
-      {activeTab === 'student' && (
-        <div className="space-y-6">
-          {/* Öğrenci Seçimi */}
-      <Card>
-            <CardHeader className="pb-4">
-              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div>
-                  <CardTitle className="flex items-center">
-                    <GraduationCap className="w-5 h-5 mr-2 text-primary" />
-                    Öğrenci Seçin
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    Detaylı karne görüntülemek için bir öğrenci seçin
-                  </CardDescription>
-                </div>
-                {selectedStudent && (
-                  <div className="no-print flex gap-2">
-                    <Button 
-                      onClick={handlePrint} 
-                      variant="outline"
-                      size="sm"
-                    >
-                      <Printer className="w-4 h-4 mr-1" />
-                      Yazdır
-                    </Button>
-                    <Button 
-                      onClick={exportStudentToPDF} 
-                      variant="outline"
-                      size="sm"
-                      className="border-blue-200 text-blue-600 hover:bg-blue-50"
-                      disabled={isExporting}
-                    >
-                      <Download className="w-4 h-4 mr-1" />
-                      PDF
-                    </Button>
-                    <Button 
-                      onClick={exportStudentToExcel} 
-                      variant="outline"
-                      size="sm"
-                      className="border-emerald-200 text-emerald-600 hover:bg-emerald-50"
-                    >
-                      <FileSpreadsheet className="w-4 h-4 mr-1" />
-                      Excel
-                    </Button>
-                  </div>
-                )}
-              </div>
-        </CardHeader>
-        <CardContent>
-              <Select
-                value={selectedStudentId}
-                onChange={(e) => setSelectedStudentId(e.target.value)}
-                className="max-w-md"
-              >
-                <option value="">-- Öğrenci Seçin --</option>
-                {analysis.studentResults.map((student) => (
-                  <option key={student.id} value={student.id}>
-                    {student.siraNo}. {student.name} ({student.studentNumber || student.no || '-'}) - {student.total.toFixed(1)} puan
-                    {student.isPassing ? ' ✓' : ' ✗'}
-                  </option>
-                ))}
-              </Select>
-            </CardContent>
-          </Card>
-
-          {/* Öğrenci Karnesi */}
-          {selectedStudent && (
-            <div ref={studentCardRef} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-              {/* Karne Başlığı - Kompakt */}
-              <div className={`px-5 py-4 ${selectedStudent.isPassing ? 'bg-gradient-to-r from-emerald-500 to-teal-500' : 'bg-gradient-to-r from-red-500 to-rose-500'}`}>
-                <div className="flex items-center justify-between text-white">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
-                      <User className="w-6 h-6" />
-                    </div>
-                    <div>
-                      <h2 className="text-lg font-bold leading-tight">{selectedStudent.name}</h2>
-                      <p className="text-sm text-white/90">Okul No: {selectedStudent.studentNumber || selectedStudent.no || '-'}</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="w-16 h-16 bg-white/20 rounded-lg flex flex-col items-center justify-center">
-                      <Award className="w-6 h-6 mb-0.5" />
-                      <span className="text-xs font-bold">{selectedStudent.isPassing ? 'GEÇTİ' : 'KALDI'}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6">
-                {/* Sol: Puan Bilgileri */}
-                <div className="space-y-4">
-                  <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                    <Target className="w-4 h-4 text-primary" />
-                    Puan Özeti
-                  </h3>
-                  
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-blue-50 p-4 rounded-xl text-center">
-                      <div className="text-3xl font-bold text-blue-600">{selectedStudent.total.toFixed(1)}</div>
-                      <div className="text-xs text-slate-500">Toplam Puan</div>
-                    </div>
-                    <div className="bg-purple-50 p-4 rounded-xl text-center">
-                      <div className="text-3xl font-bold text-purple-600">%{selectedStudent.percentage.toFixed(0)}</div>
-                      <div className="text-xs text-slate-500">Başarı Oranı</div>
-                    </div>
-                  </div>
-
-                  <div className={`p-4 rounded-xl ${selectedStudent.total > analysis.classAverage ? 'bg-emerald-50' : 'bg-amber-50'}`}>
-                    <div className="flex items-center gap-2 mb-2">
-                      {selectedStudent.total > analysis.classAverage ? (
-                        <TrendingUp className="w-5 h-5 text-emerald-600" />
-                      ) : (
-                        <TrendingDown className="w-5 h-5 text-amber-600" />
-                      )}
-                      <span className={`font-medium ${selectedStudent.total > analysis.classAverage ? 'text-emerald-700' : 'text-amber-700'}`}>
-                        Sınıf Ortalaması: {analysis.classAverage.toFixed(1)}
-                      </span>
-                    </div>
-                    <p className="text-sm text-slate-600">
-                      {selectedStudent.total > analysis.classAverage 
-                        ? `Ortalamanın ${(selectedStudent.total - analysis.classAverage).toFixed(1)} puan üzerinde`
-                        : `Ortalamanın ${(analysis.classAverage - selectedStudent.total).toFixed(1)} puan altında`
-                      }
-                    </p>
-                  </div>
-
-                  {/* Değerlendirme */}
-                  <Alert className="bg-slate-50 border-slate-200">
-                    <AlertDescription className="text-slate-700 text-sm">
-                      <strong className="text-slate-800">Değerlendirme:</strong><br/>
-                      {studentComment}
-                    </AlertDescription>
-                  </Alert>
-                </div>
-
-                {/* Orta: Kazanım Durumları */}
-                <div className="space-y-4">
-                  <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                    Kazanım Detayları
-                  </h3>
-                  
-                  <div className="space-y-2 max-h-[400px] overflow-y-auto scrollbar-thin pr-2">
-                    {config.outcomes.map((outcome, idx) => {
-                      const score = selectedStudent.outcomeScores[idx]
-                      const maxScore = outcomeStats[idx]?.maxScore ?? 0
-                      const pct = (score / maxScore) * 100
-                      const isSuccess = pct >= (config.outcomeMasteryThreshold || 50)
-                      
-                      return (
-                        <div 
-                          key={idx}
-                          className={`flex items-center justify-between p-3 rounded-xl transition-colors ${
-                            isSuccess ? 'bg-emerald-50 hover:bg-emerald-100' : 'bg-red-50 hover:bg-red-100'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            {isSuccess ? (
-                              <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0" />
-                            ) : (
-                              <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                            )}
-                            <span className="text-sm truncate">
-                              <strong className="text-slate-700">S{idx + 1}:</strong>{' '}
-                              <span className="text-slate-600">{outcome}</span>
-                            </span>
-                          </div>
-                          <div className={`font-bold text-sm ml-2 ${isSuccess ? 'text-emerald-600' : 'text-red-600'}`}>
-                            {score.toFixed(1)}/{maxScore}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                {/* Sağ: Grafik */}
-                <div className="space-y-4">
-                  <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                    <BarChart3 className="w-4 h-4 text-primary" />
-                    Karşılaştırma
-                  </h3>
-                  
-                  <div className="bg-slate-50 rounded-xl p-4">
-                    <ResponsiveContainer width="100%" height={320}>
-                      <BarChart
-                        data={config.outcomes.map((_, idx) => ({
-                          name: `S${idx + 1}`,
-                          'Öğrenci': selectedStudent.outcomeScores[idx],
-                          'Sınıf': outcomeStats[idx]?.avgScore ?? 0,
-                        }))}
-                        barGap={4}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                        <XAxis 
-                          dataKey="name" 
-                          tick={{ fill: '#64748b', fontSize: 11 }}
-                          axisLine={{ stroke: '#cbd5e1' }}
-                        />
-                        <YAxis 
-                          tick={{ fill: '#64748b', fontSize: 11 }}
-                          axisLine={{ stroke: '#cbd5e1' }}
-                        />
-                        <Tooltip content={<CustomTooltip />} />
-                        <Legend 
-                          wrapperStyle={{ fontSize: '12px' }}
-                        />
-                        <Bar 
-                          dataKey="Öğrenci" 
-                          fill="#3b82f6" 
-                          radius={[4, 4, 0, 0]} 
-                        />
-                        <Bar 
-                          dataKey="Sınıf" 
-                          fill="#cbd5e1" 
-                          radius={[4, 4, 0, 0]} 
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-
-              {/* Karne Alt Bilgi */}
-              <div className="px-6 py-4 bg-slate-50 border-t border-slate-200">
-                <div className="flex justify-between items-center text-xs text-slate-500">
-                  <div className="flex items-center gap-4">
-                    <span className="flex items-center gap-1">
-                      <Building2 className="w-3 h-3" />
-                      {config.schoolName || 'Okul'}
-                        </span>
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-3 h-3" />
-                      {today}
-                        </span>
-          </div>
-                  <span>NetAnaliz © 2026</span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {!selectedStudentId && (
-            <div className="text-center py-16">
-              <div className="w-20 h-20 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <User className="w-10 h-10 text-slate-300" />
       </div>
-              <p className="text-slate-500">Detaylı karne görüntülemek için yukarıdan bir öğrenci seçin.</p>
+
+      <div className="max-w-[1600px] mx-auto px-4 md:px-8 py-8 screen-only">
+        <div className="flex flex-col md:flex-row gap-8 items-start">
+
+          {/* Sidebar */}
+          <aside className="hidden md:block w-64 flex-shrink-0 sticky top-28 no-print">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 px-2">Rapor Bölümleri</h3>
+              <AnalysisSidebar activeSection={activeSection} onSectionChange={setActiveSection} />
             </div>
-          )}
+          </aside>
+
+          {/* Mobile Nav */}
+          <div className="md:hidden w-full overflow-x-auto pb-2 -mt-4 mb-4 scrollbar-hide no-print">
+            <div className="flex gap-2 min-w-max">
+              <AnalysisSidebar activeSection={activeSection} onSectionChange={setActiveSection} />
+            </div>
+          </div>
+
+          {/* Main Content */}
+          <main className="flex-1 min-w-0">
+            <div className="bg-white/50 min-h-[500px] rounded-3xl print:p-0">
+              {renderSection()}
+            </div>
+          </main>
         </div>
-      )}
+      </div>
 
-      {/* Print Stilleri - Gelişmiş */}
-      <style>{`
-        @media print {
-          /* Temel ayarlar */
-          * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            color-adjust: exact !important;
-          }
-
-          /* Sayfa ayarları */
-          @page {
-            size: A4 landscape;
-            margin: 10mm 8mm;
-          }
-
-          /* Gizlenecek elementler */
-          .no-print,
-          button,
-          nav,
-          .recharts-tooltip-wrapper {
-            display: none !important;
-          }
-
-          /* Body */
-          body {
-            background: #fff !important;
-            font-family: Arial, Helvetica, sans-serif !important;
-            font-size: 10pt !important;
-          }
-
-          /* TABLO BÖLÜNME ÖNLEMİ */
-          table {
-            page-break-inside: auto !important;
-          }
-
-          thead {
-            display: table-header-group !important;
-          }
-
-          tr {
-            page-break-inside: avoid !important;
-            page-break-after: auto !important;
-          }
-
-          /* Kartlar ve containerlar */
-          .rounded-2xl,
-          .rounded-xl,
-          .shadow-sm,
-          [class*="card"] {
-            page-break-inside: avoid !important;
-            break-inside: avoid !important;
-            box-shadow: none !important;
-            border: 1px solid #ddd !important;
-          }
-
-          /* Başlıklar */
-          h1, h2, h3 {
-            page-break-after: avoid !important;
-            font-size: 12pt !important;
-          }
-
-          /* Hücreler */
-          th, td {
-            padding: 6px 8px !important;
-            font-size: 9pt !important;
-          }
-
-          /* Grafikler */
-          .recharts-wrapper {
-            page-break-inside: avoid !important;
-          }
-        }
-      `}</style>
+      {/* Hidden Print Container for PDF Generation - Offscreen but rendered */}
+      <div style={{ position: 'absolute', top: 0, left: '-9999px', width: '210mm' }}>
+        <div ref={printRef}>
+          <ReportPrintView analysis={analysis} config={config} />
+        </div>
+      </div>
     </div>
   )
 }
 
 export default AnalysisDashboard
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -1,7 +1,6 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card'
 import { Input } from './ui/Input'
-import { Select } from './ui/Select'
 import { Label } from './ui/Label'
 import { Button } from './ui/Button'
 import { Alert, AlertDescription } from './ui/Alert'
@@ -23,13 +22,13 @@ const normalizeQuestions = (count, existingQuestions, outcomes) => {
   if (count <= 0) return []
   return Array.from({ length: count }).map((_, index) => {
     const existing = existingQuestions[index]
-    let outcomeId = existing?.outcomeId ?? (outcomes.length > 0 ? '0' : null)
+    let outcomeId = existing?.outcomeId ?? null
     if (outcomeId !== null && outcomeId !== '' && !outcomeIds.has(String(outcomeId))) {
       outcomeId = null
     }
     return {
       qNo: index + 1,
-      maxScore: Number.isFinite(toNumber(existing?.maxScore)) ? toNumber(existing?.maxScore) : 1,
+      maxScore: Math.max(0, Math.floor(Number.isFinite(toNumber(existing?.maxScore)) ? toNumber(existing?.maxScore) : 1)),
       outcomeId,
     }
   })
@@ -47,20 +46,6 @@ const areQuestionsEqual = (a, b) => {
   return true
 }
 
-const getAssignedQuestions = (questions, outcomeId) => {
-  return questions
-    .filter((question) => String(question.outcomeId) === String(outcomeId))
-    .map((question) => question.qNo)
-    .sort((a, b) => a - b)
-}
-
-const getUnassignedQuestions = (questions) => {
-  return questions
-    .filter((question) => question.outcomeId === null || question.outcomeId === '' || question.outcomeId === undefined)
-    .map((question) => question.qNo)
-    .sort((a, b) => a - b)
-}
-
 const SetupAndGradesStep = ({
   config,
   questions = [],
@@ -75,45 +60,41 @@ const SetupAndGradesStep = ({
 }) => {
   const [activeTab, setActiveTab] = useState('setup')
   const [outcomeTexts, setOutcomeTexts] = useState(config.outcomes || [])
+  const [outcomeCount, setOutcomeCount] = useState((config.outcomes || []).length)
   const [questionCount, setQuestionCount] = useState(questions.length || 0)
-  const [expandedOutcomeIndex, setExpandedOutcomeIndex] = useState(null)
-  const [showScoreEditor, setShowScoreEditor] = useState(false)
+  const [scoringMode, setScoringMode] = useState('auto') // 'auto' or 'manual'
   const [showGradeResetWarning, setShowGradeResetWarning] = useState(false)
+  const [showOutcomesPanel, setShowOutcomesPanel] = useState(false) // Mobile accordion
   const lastQuestionCountRef = useRef(questions.length || 0)
 
+  // Sync outcomeTexts with config.outcomes
   useEffect(() => {
     const outcomeList = config.outcomes || []
-    if (outcomeTexts.length !== outcomeList.length) {
+    if (JSON.stringify(outcomeTexts) !== JSON.stringify(outcomeList)) {
       setOutcomeTexts(outcomeList)
+      setOutcomeCount(outcomeList.length)
     }
-    if ((config.outcomeCount ?? outcomeList.length) !== outcomeList.length) {
-      onConfigChange({ outcomeCount: outcomeList.length })
-    }
-  }, [config.outcomes, config.outcomeCount, outcomeTexts.length, onConfigChange])
+  }, [config.outcomes])
 
-  useEffect(() => {
-    if (config.outcomeCount && outcomeTexts.length !== config.outcomeCount) {
-      const newTexts = Array(config.outcomeCount).fill('').map((_, i) => outcomeTexts[i] || '')
-      setOutcomeTexts(newTexts)
-    }
-  }, [config.outcomeCount])
-
+  // Sync questionCount with questions.length
   useEffect(() => {
     if (questions.length !== questionCount) {
       setQuestionCount(questions.length)
     }
   }, [questions.length])
 
+  // Normalize questions when count or outcomes change
   useEffect(() => {
-    const normalized = normalizeQuestions(questionCount, questions, config.outcomes || [])
+    const normalized = normalizeQuestions(questionCount, questions, outcomeTexts)
     if (!areQuestionsEqual(normalized, questions)) {
       onQuestionsChange(normalized)
     }
-  }, [questionCount, questions, config.outcomes, onQuestionsChange])
+  }, [questionCount, outcomeTexts])
 
+  // Grade reset warning when question count changes
   useEffect(() => {
     const prev = lastQuestionCountRef.current
-    if (prev !== questionCount) {
+    if (prev !== questionCount && questionCount > 0) {
       const hasAnyGrade = students.some((student) => {
         const studentGrades = grades?.[student.id]
         if (!studentGrades) return false
@@ -126,8 +107,9 @@ const SetupAndGradesStep = ({
     }
   }, [questionCount, students, grades])
 
-  const handleOutcomeCountChange = (e) => {
-    const count = parseInt(e.target.value, 10) || 0
+  const handleOutcomeCountChange = (value) => {
+    const count = parseInt(value, 10) || 0
+    setOutcomeCount(count)
     const next = Array(count).fill('').map((_, i) => outcomeTexts[i] || '')
     setOutcomeTexts(next)
     onConfigChange({ outcomeCount: count, outcomes: next })
@@ -142,81 +124,47 @@ const SetupAndGradesStep = ({
 
   const handleQuestionCountChange = (value) => {
     const parsed = parseInt(value, 10)
-    setQuestionCount(Number.isFinite(parsed) ? parsed : 0)
-  }
-
-  const handleOutcomeQuestionCountChange = (outcomeIndex, targetCount) => {
-    const outcomeId = String(outcomeIndex)
-    const next = normalizeQuestions(questionCount, questions, config.outcomes || [])
-    const assigned = getAssignedQuestions(next, outcomeId)
-    const unassigned = getUnassignedQuestions(next)
-
-    let updated = [...assigned]
-    if (targetCount > assigned.length) {
-      const needed = targetCount - assigned.length
-      const toAssign = unassigned.slice(0, needed)
-      updated = assigned.concat(toAssign)
-      toAssign.forEach((qNo) => {
-        const question = next.find((q) => q.qNo === qNo)
-        if (question) question.outcomeId = outcomeId
-      })
-    } else if (targetCount < assigned.length) {
-      const toRemove = assigned.slice(targetCount)
-      toRemove.forEach((qNo) => {
-        const question = next.find((q) => q.qNo === qNo)
-        if (question) question.outcomeId = null
-      })
-      updated = assigned.slice(0, targetCount)
-    }
-
-    onQuestionsChange(next)
+    const newCount = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+    setQuestionCount(newCount)
   }
 
   const handleQuestionScoreChange = (qNo, value) => {
     const next = [...questions]
     const question = next.find((item) => item.qNo === qNo)
     if (!question) return
-    question.maxScore = toNumber(value)
+    question.maxScore = Math.max(0, Math.floor(toNumber(value)))
     onQuestionsChange(next)
   }
 
-  const handleToggleQuestion = (outcomeIndex, qNo) => {
-    const outcomeId = String(outcomeIndex)
-    const next = normalizeQuestions(questionCount, questions, config.outcomes || [])
-    const question = next.find((q) => q.qNo === qNo)
+  const handleOutcomeChange = (qNo, selectedValue) => {
+    const next = [...questions]
+    const question = next.find((item) => item.qNo === qNo)
     if (!question) return
-    if (String(question.outcomeId) === outcomeId) {
-      question.outcomeId = null
-    } else {
-      question.outcomeId = outcomeId
-    }
+    question.outcomeId = selectedValue === '' ? null : selectedValue
     onQuestionsChange(next)
   }
 
-  const handleAutoDistributeQuestions = () => {
+  const handleAutoDistribute = () => {
     if (questionCount <= 0) return
-    const baseQuestions = normalizeQuestions(questionCount, questions, config.outcomes || [])
-    const perQuestion = 100 / questionCount
-    let runningSum = 0
+    const baseQuestions = normalizeQuestions(questionCount, questions, outcomeTexts)
+
+    const n = questionCount
+    const base = Math.floor(100 / n)
+    const remainder = 100 - (base * n)
+
     const next = baseQuestions.map((question, index) => {
-      const value = index === questionCount - 1
-        ? 100 - runningSum
-        : perQuestion
-      const rounded = Number(value.toFixed(2))
-      if (index < questionCount - 1) {
-        runningSum += rounded
-      }
+      // Distribute 100 points: base for everyone, remainder to the last one
+      // Guarantees Sum = 100 and Integers
+      const add = (index === n - 1) ? remainder : 0
+      const score = base + add
+
       return {
         ...question,
-        maxScore: rounded,
+        maxScore: score,
       }
     })
     onQuestionsChange(next)
   }
-
-  const questionTotalScore = useMemo(() => {
-    return questions.reduce((sum, question) => sum + toNumber(question.maxScore), 0)
-  }, [questions])
 
   const hasAnyGrade = useMemo(() => {
     return students.some((student) => {
@@ -229,49 +177,95 @@ const SetupAndGradesStep = ({
   const canAnalyze = students.length > 0 && questions.length > 0 && hasAnyGrade
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Sınav Kurulumu & Not Girişi</h1>
-          <p className="text-sm text-gray-500">Sınavı kurun, öğrencileri yükleyin ve notları girin.</p>
-        </div>
+    <div className="max-w-7xl mx-auto space-y-6">
+      {/* Top Bar: Back Button */}
+      <div className="flex justify-end">
         <Button onClick={onBack} variant="outline">
           Geri
         </Button>
       </div>
 
-      <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-full w-fit">
-        <button
-          onClick={() => setActiveTab('setup')}
-          className={`px-4 py-2 text-sm rounded-full transition-all ${
-            activeTab === 'setup'
-              ? 'bg-white text-gray-900 shadow-apple'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Sınav Kurulumu
-        </button>
-        <button
-          onClick={() => setActiveTab('grades')}
-          className={`px-4 py-2 text-sm rounded-full transition-all ${
-            activeTab === 'grades'
-              ? 'bg-white text-gray-900 shadow-apple'
-              : 'text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          Öğrenci & Notlar
-        </button>
-      </div>
+      {/* Header Grid: Title/Tabs + Student Import Toolbar (only on grades tab) */}
+      {activeTab === 'grades' ? (
+        <Card className="shadow-apple-lg border border-gray-100 bg-white rounded-2xl p-6">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_680px] gap-6 items-start">
+            {/* Left: Title, Description, Tabs */}
+            <div className="space-y-4">
+              <div>
+                <h1 className="text-2xl font-semibold text-gray-900">Sınav Kurulumu & Not Girişi</h1>
+                <p className="text-sm text-gray-500">Sınavı kurun, öğrencileri yükleyin ve notları girin.</p>
+              </div>
+              <div className="inline-flex items-center gap-1 bg-gray-100 p-1 rounded-full">
+                <button
+                  onClick={() => setActiveTab('setup')}
+                  className={`px-4 py-2 text-sm rounded-full transition-all ${activeTab === 'setup'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                  Sınav Kurulumu
+                </button>
+                <button
+                  onClick={() => setActiveTab('grades')}
+                  className={`px-4 py-2 text-sm rounded-full transition-all ${activeTab === 'grades'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                  Öğrenci & Notlar
+                </button>
+              </div>
+            </div>
+
+            {/* Right: Student Import Toolbar */}
+            <div className="h-full">
+              <ExcelUploader
+                onStudentsImported={onStudentsChange}
+                existingStudents={students}
+                showNavigation={false}
+                compact={true}
+              />
+            </div>
+          </div>
+        </Card>
+      ) : (
+        /* Setup tab: Simple header */
+        <Card className="shadow-apple-lg border border-gray-100 bg-white rounded-2xl p-6">
+          <div className="space-y-4">
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-900">Sınav Kurulumu & Not Girişi</h1>
+              <p className="text-sm text-gray-500">Sınavı kurun, öğrencileri yükleyin ve notları girin.</p>
+            </div>
+            <div className="inline-flex items-center gap-1 bg-gray-100 p-1 rounded-full">
+              <button
+                onClick={() => setActiveTab('setup')}
+                className={`px-4 py-2 text-sm rounded-full transition-all ${activeTab === 'setup'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+                  }`}
+              >
+                Sınav Kurulumu
+              </button>
+              <button
+                onClick={() => setActiveTab('grades')}
+                className={`px-4 py-2 text-sm rounded-full transition-all ${activeTab === 'grades'
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700'
+                  }`}
+              >
+                Öğrenci & Notlar
+              </button>
+            </div>
+          </div>
+        </Card>
+      )}
 
       {activeTab === 'setup' && (
         <div className="space-y-6">
+          {/* Policy Settings at Top */}
           <Card className="shadow-apple-lg">
-            <CardHeader>
-              <CardTitle>Sınav Kurulumu</CardTitle>
-              <CardDescription>Kazanım listesi ve soru blueprint eşlemesi.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <CardContent className="pt-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="generalPassingScore" className="text-gray-600">Genel Geçme Puanı</Label>
                   <Input
@@ -295,56 +289,108 @@ const SetupAndGradesStep = ({
                   />
                 </div>
               </div>
+            </CardContent>
+          </Card>
 
-              <div className="pt-6 border-t border-gray-100 space-y-4">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">Kazanım Kartları</h3>
-                    <p className="text-sm text-gray-500">Soru dağılımını kazanım bazında yapın.</p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setShowScoreEditor((prev) => !prev)}
-                      disabled={questionCount <= 0}
-                    >
-                      Soru Değerlerini Düzenle
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={handleAutoDistributeQuestions}
-                      disabled={questionCount <= 0}
-                    >
-                      Otomatik Dağıt (100/n)
-                    </Button>
-                  </div>
-                  {showScoreEditor && questionCount > 0 && (
-  <div className="p-4 rounded-xl border border-gray-100 bg-white shadow-sm">
-    <div className="text-sm font-medium text-gray-700 mb-3">Soru Değerleri</div>
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      {questions.map((question) => (
-        <div key={`score-${question.qNo}`} className="flex items-center gap-2">
-          <span className="text-xs text-gray-500 w-10">Q{question.qNo}</span>
-          <Input
-            type="number"
-            min="0"
-            value={question.maxScore ?? 0}
-            onChange={(e) => handleQuestionScoreChange(question.qNo, e.target.value)}
-            className="text-right"
-          />
-        </div>
-      ))}
-    </div>
-  </div>
-)}
-
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Main Setup Area: Left Panel + Right Table */}
+          <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
+            {/* Left Panel: Kazanımlar (Desktop) */}
+            <div className="hidden lg:block">
+              <Card className="shadow-apple-lg h-full">
+                <CardHeader className="pb-4">
+                  <CardTitle className="text-lg">Kazanımlar</CardTitle>
+                  <CardDescription className="text-xs">Kazanım listesi tanımlayın</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="questionCount" className="text-gray-600">Toplam Soru Sayısı (n)</Label>
+                    <Label htmlFor="outcomeCount" className="text-sm text-gray-600">Kazanım Sayısı (K)</Label>
+                    <Input
+                      id="outcomeCount"
+                      type="number"
+                      min="0"
+                      value={outcomeCount}
+                      onChange={(e) => handleOutcomeCountChange(e.target.value)}
+                      className="text-sm"
+                    />
+                  </div>
+                  {outcomeCount > 0 && (
+                    <div className="space-y-2">
+                      {Array.from({ length: outcomeCount }).map((_, index) => (
+                        <div key={index} className="space-y-1">
+                          <Label className="text-xs text-gray-500">K{index + 1}</Label>
+                          <Input
+                            value={outcomeTexts[index] || ''}
+                            onChange={(e) => handleOutcomeTextChange(index, e.target.value)}
+                            placeholder={`Kazanım ${index + 1}`}
+                            className="text-sm"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Mobile: Kazanımlar Accordion */}
+            <div className="lg:hidden">
+              <Card className="shadow-apple-lg">
+                <CardHeader className="pb-3">
+                  <button
+                    onClick={() => setShowOutcomesPanel(!showOutcomesPanel)}
+                    className="flex items-center justify-between w-full text-left"
+                  >
+                    <div>
+                      <CardTitle className="text-lg">Kazanımlar</CardTitle>
+                      <CardDescription className="text-xs">Kazanım listesi tanımlayın</CardDescription>
+                    </div>
+                    <span className="text-gray-400">{showOutcomesPanel ? '▼' : '▶'}</span>
+                  </button>
+                </CardHeader>
+                {showOutcomesPanel && (
+                  <CardContent className="space-y-4 pt-0">
+                    <div className="space-y-2">
+                      <Label htmlFor="outcomeCountMobile" className="text-sm text-gray-600">Kazanım Sayısı (K)</Label>
+                      <Input
+                        id="outcomeCountMobile"
+                        type="number"
+                        min="0"
+                        value={outcomeCount}
+                        onChange={(e) => handleOutcomeCountChange(e.target.value)}
+                        className="text-sm"
+                      />
+                    </div>
+                    {outcomeCount > 0 && (
+                      <div className="space-y-2">
+                        {Array.from({ length: outcomeCount }).map((_, index) => (
+                          <div key={index} className="space-y-1">
+                            <Label className="text-xs text-gray-500">K{index + 1}</Label>
+                            <Input
+                              value={outcomeTexts[index] || ''}
+                              onChange={(e) => handleOutcomeTextChange(index, e.target.value)}
+                              placeholder={`Kazanım ${index + 1}`}
+                              className="text-sm"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                )}
+              </Card>
+            </div>
+
+            {/* Right Panel: Question Setup */}
+            <Card className="shadow-apple-lg">
+              <CardHeader>
+                <CardTitle>Soru Kurulumu</CardTitle>
+                <CardDescription>Soru sayısı, puanlama ve kazanım eşleştirmesi</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Question Settings Row */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                  <div className="space-y-2">
+                    <Label htmlFor="questionCount" className="text-gray-600">Toplam Soru (N)</Label>
                     <Input
                       id="questionCount"
                       type="number"
@@ -354,21 +400,49 @@ const SetupAndGradesStep = ({
                     />
                   </div>
                   <div className="space-y-2">
+                    <Label className="text-gray-600">Puanlama Modu</Label>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setScoringMode('auto')}
+                        className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg transition-all ${scoringMode === 'auto'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white text-gray-600 border border-gray-200'
+                          }`}
+                      >
+                        Otomatik
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setScoringMode('manual')}
+                        className={`flex-1 px-3 py-2 text-xs font-medium rounded-lg transition-all ${scoringMode === 'manual'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white text-gray-600 border border-gray-200'
+                          }`}
+                      >
+                        Manuel
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
                     <Label className="text-gray-600">Toplam Puan</Label>
-                    <div className="h-10 flex items-center px-3 rounded-lg bg-gray-50 text-gray-700 font-semibold">
-                      {questionTotalScore.toFixed(2)}
+                    <div className="h-10 flex items-center justify-between px-3 rounded-lg bg-gray-50 text-gray-700 font-semibold">
+                      <span>100</span>
+                      {scoringMode === 'auto' && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={handleAutoDistribute}
+                          disabled={questionCount <= 0}
+                          className="h-7 text-xs"
+                        >
+                          Dağıt (100/N)
+                        </Button>
+                      )}
                     </div>
                   </div>
                 </div>
-
-                {questionCount > 0 && questionTotalScore !== 100 && (
-                  <Alert className="bg-amber-50 border-amber-200">
-                    <AlertTriangle className="h-4 w-4 text-amber-600" />
-                    <AlertDescription className="text-amber-700 text-sm">
-                      Toplam puan 100 değil. (Şu an: {questionTotalScore.toFixed(2)})
-                    </AlertDescription>
-                  </Alert>
-                )}
 
                 {showGradeResetWarning && (
                   <Alert className="bg-amber-50 border-amber-200">
@@ -390,150 +464,101 @@ const SetupAndGradesStep = ({
                   </Alert>
                 )}
 
-                <div className="pt-4 border-t border-gray-100 space-y-4">
-                  <div className="flex items-center justify-between">
+                {/* Question-Outcome Table */}
+                {questionCount > 0 && (
+                  <div className="space-y-3">
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-900">Kazanımlar</h3>
-                      <p className="text-sm text-gray-500">Kazanım adlarını ve soru dağılımını belirleyin.</p>
+                      <h3 className="text-sm font-semibold text-gray-900">Soru–Kazanım Eşleştirme</h3>
+                      <p className="text-xs text-gray-500">Her soru için puan ve kazanım seçin.</p>
                     </div>
-                    <div className="w-32">
-                      <Input
-                        type="number"
-                        min="0"
-                        value={config.outcomeCount ?? 0}
-                        onChange={handleOutcomeCountChange}
-                        placeholder="Adet"
-                      />
+
+                    <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+                      <table className="w-full">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase w-16">Soru</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase w-24">Puan</th>
+                            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Kazanım</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {questions.map((question) => (
+                            <tr key={question.qNo} className="hover:bg-gray-50">
+                              <td className="px-4 py-3 text-sm font-medium text-gray-900">
+                                Q{question.qNo}
+                              </td>
+                              <td className="px-4 py-3">
+                                {scoringMode === 'auto' ? (
+                                  <div className="text-sm text-gray-700 font-medium">
+                                    {Math.round(question.maxScore ?? 0)}
+                                  </div>
+                                ) : (
+                                  <Input
+                                    type="number"
+                                    min="0"
+                                    step="1"
+                                    value={question.maxScore ?? 0}
+                                    onChange={(e) => handleQuestionScoreChange(question.qNo, e.target.value)}
+                                    className="w-20 text-right text-sm"
+                                  />
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                <select
+                                  value={question.outcomeId ?? ''}
+                                  onChange={(e) => handleOutcomeChange(question.qNo, e.target.value)}
+                                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                >
+                                  <option value="">Seçilmedi</option>
+                                  {outcomeTexts.map((outcome, index) => (
+                                    <option key={index} value={String(index)}>
+                                      {outcome || `Kazanım ${index + 1}`}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-
-                  {config.outcomeCount > 0 && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {Array.from({ length: config.outcomeCount }).map((_, index) => {
-                        const outcomeId = String(index)
-                        const assigned = getAssignedQuestions(questions, outcomeId)
-                        const unassigned = getUnassignedQuestions(questions)
-                        const maxAssignable = assigned.length + unassigned.length
-                        const currentCount = assigned.length
-                        const outcomeTitle = outcomeTexts[index] || `Kazanım ${index + 1}`
-
-                        return (
-                          <div key={outcomeId} className="p-4 rounded-2xl border border-gray-100 bg-white shadow-sm">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="flex-1">
-                                <Label className="text-xs text-gray-500">Kazanım {index + 1}</Label>
-                                <Input
-                                  value={outcomeTexts[index] || ''}
-                                  onChange={(e) => handleOutcomeTextChange(index, e.target.value)}
-                                  placeholder={`Kazanım ${index + 1} açıklaması`}
-                                  className="mt-1"
-                                />
-                              </div>
-                              <div className="flex flex-col items-end">
-                                <Label className="text-xs text-gray-500">Soru Sayısı</Label>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleOutcomeQuestionCountChange(index, Math.max(0, currentCount - 1))}
-                                    disabled={currentCount === 0}
-                                  >
-                                    -
-                                  </Button>
-                                  <span className="text-sm font-semibold w-8 text-center">{currentCount}</span>
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => handleOutcomeQuestionCountChange(index, Math.min(maxAssignable, currentCount + 1))}
-                                    disabled={currentCount >= maxAssignable}
-                                  >
-                                    +
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="mt-3">
-                              <div className="flex flex-wrap gap-2">
-                                {assigned.length === 0 && (
-                                  <span className="text-xs text-gray-400">Henüz soru atanmadı.</span>
-                                )}
-                                {assigned.map((qNo) => {
-                                  const maxScore = questions.find((q) => q.qNo === qNo)?.maxScore ?? 0
-                                  return (
-                                    <span
-                                      key={`${outcomeId}-q${qNo}`}
-                                      className="inline-flex items-center gap-2 px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full"
-                                    >
-                                      Q{qNo} ({toNumber(maxScore)})
-                                    </span>
-                                  )
-                                })}
-                              </div>
-                            </div>
-
-                            <div className="mt-3">
-                              <button
-                                type="button"
-                                className="text-xs text-blue-600 hover:text-blue-800"
-                                onClick={() => setExpandedOutcomeIndex(expandedOutcomeIndex === index ? null : index)}
-                              >
-                                {expandedOutcomeIndex === index ? 'Seçimi Kapat' : 'Soruları Seç'}
-                              </button>
-                            </div>
-
-                            {expandedOutcomeIndex === index && questionCount > 0 && (
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                {questions.map((question) => {
-                                  const isSelected = String(question.outcomeId) === outcomeId
-                                  return (
-                                    <button
-                                      key={`picker-${outcomeId}-${question.qNo}`}
-                                      type="button"
-                                      onClick={() => handleToggleQuestion(index, question.qNo)}
-                                      className={`px-2 py-1 text-xs rounded-full border ${
-                                        isSelected
-                                          ? 'bg-blue-600 text-white border-blue-600'
-                                          : 'bg-white text-gray-600 border-gray-200'
-                                      }`}
-                                      title={outcomeTitle}
-                                    >
-                                      Q{question.qNo}
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                )}
+              </CardContent>
+            </Card>
+          </div>
         </div>
       )}
 
       {activeTab === 'grades' && (
-        <div className="space-y-6">
-          <ExcelUploader
-            onStudentsImported={onStudentsChange}
-            existingStudents={students}
-            showNavigation={false}
-          />
+        <div className="space-y-4 mt-2">
+          {/* Note: ExcelUploader is now in the header row above */}
 
-          <GradingTable
-            config={config}
-            questions={questions}
-            students={students}
-            grades={grades}
-            onGradesChange={onGradesChange}
-            showNavigation={false}
-          />
+          {/* Full-Width Grading Table or Empty State */}
+          {students.length === 0 ? (
+            <Card className="shadow-apple-lg">
+              <CardContent className="py-12 text-center">
+                <div className="space-y-3">
+                  <div className="text-gray-400">
+                    <svg className="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900">Henüz öğrenci yok</h3>
+                  <p className="text-sm text-gray-500">Yukarıdaki araç çubuğundan öğrenci listesi yükleyin</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <GradingTable
+              config={config}
+              questions={questions}
+              students={students}
+              grades={grades}
+              onGradesChange={onGradesChange}
+              showNavigation={false}
+            />
+          )}
         </div>
       )}
 
@@ -550,4 +575,3 @@ const SetupAndGradesStep = ({
 }
 
 export default SetupAndGradesStep
-                

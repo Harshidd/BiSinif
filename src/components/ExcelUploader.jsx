@@ -1,49 +1,27 @@
 import React, { useCallback, useState } from 'react'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/Card'
+import { Card, CardContent, CardHeader, CardTitle } from './ui/Card'
+import { Input } from './ui/Input'
 import { Button } from './ui/Button'
 import { Alert, AlertDescription } from './ui/Alert'
-import { Upload, FileSpreadsheet, AlertCircle, CheckCircle2, Download, Info } from 'lucide-react'
+import { Upload, AlertCircle, CheckCircle2, ChevronDown, ChevronRight } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
 /**
- * STANDART VERİ MODELİ:
- * - siraNo: Sıra numarası (1, 2, 3...) - Otomatik atanır
- * - studentNumber: Öğrenci/Okul numarası (1453, 2587...) - Excel'den OKUL NO sütunu
- * - name: Öğrenci adı soyadı - Excel'den ADI SOYADI sütunu
+ * e-Okul Friendly Student Importer
+ * Supports: Excel upload, paste from e-Okul, manual entry
+ * Can render as left panel (default) or compact toolbar (compact=true)
  */
 
-const ExcelUploader = ({ onStudentsImported, onNext, onBack, existingStudents, showNavigation = true }) => {
-  const [isDragging, setIsDragging] = useState(false)
+const ExcelUploader = ({ onStudentsImported, existingStudents, compact = false }) => {
+  const [mode, setMode] = useState('excel') // 'excel' | 'paste' | 'manual'
   const [students, setStudents] = useState(existingStudents || [])
   const [error, setError] = useState(null)
-  const [fileName, setFileName] = useState(existingStudents?.length ? 'Mevcut liste yüklü' : '')
-  const [debugInfo, setDebugInfo] = useState(null)
+  const [fileName, setFileName] = useState('')
+  const [showTips, setShowTips] = useState(false)
+  const [pasteText, setPasteText] = useState('')
+  const [hasHeader, setHasHeader] = useState(true)
 
-  // Excel şablonu indirme fonksiyonu
-  const downloadTemplate = useCallback(() => {
-    const templateData = [
-      ['SIRA NO', 'OKUL NO', 'ADI SOYADI'],
-      [1, 1001, 'Ahmet YILMAZ'],
-      [2, 1002, 'Ayşe DEMİR'],
-      [3, 1003, 'Mehmet KAYA'],
-      [4, '', ''],
-      [5, '', '']
-    ]
-
-    const wb = XLSX.utils.book_new()
-    const ws = XLSX.utils.aoa_to_sheet(templateData)
-
-    ws['!cols'] = [
-      { wch: 10 },
-      { wch: 15 },
-      { wch: 30 }
-    ]
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Öğrenci Listesi')
-    XLSX.writeFile(wb, 'ogrenci_listesi_sablonu.xlsx')
-  }, [])
-
-  // Türkçe karakterleri normalize et
+  // Normalize Turkish characters
   const normalizeTurkish = (str) => {
     if (!str) return ''
     return String(str)
@@ -58,47 +36,152 @@ const ExcelUploader = ({ onStudentsImported, onNext, onBack, existingStudents, s
       .replace(/ç/g, 'c')
   }
 
-  // Değeri güvenli şekilde string'e çevir
+  // Clean value
   const cleanValue = (val) => {
     if (val === null || val === undefined) return ''
-    return String(val).trim()
+    return String(val).trim().replace(/\s+/g, ' ')
   }
 
-  // BAŞLIK TESPİT FONKSİYONU - ÇOK KRİTİK!
+  // Detect column type
   const detectColumnType = (headerText) => {
     const normalized = normalizeTurkish(headerText)
-    
-    // SIRA NO tespiti - EN ÖNCE kontrol et!
-    // "sira" kelimesi içeriyorsa kesinlikle SIRA NO'dur
+
+    if (
+      normalized.includes('okul no') ||
+      normalized.includes('ogrenci no') ||
+      normalized.includes('ogr no') ||
+      normalized === 'no' ||
+      normalized === 'numara'
+    ) {
+      return 'STUDENT_NUMBER'
+    }
+
+    if (
+      normalized.includes('ad soyad') ||
+      normalized.includes('adi soyadi') ||
+      normalized.includes('ad-soyad') ||
+      normalized.includes('ogrenci') && !normalized.includes('no') ||
+      normalized.includes('isim') ||
+      normalized === 'ad'
+    ) {
+      return 'NAME'
+    }
+
     if (normalized.includes('sira')) {
-      return 'SIRA_NO'
+      return 'ORDER'
     }
-    
-    // ADI SOYADI tespiti
-    if (normalized.includes('adi') || 
-        normalized.includes('soyadi') || 
-        normalized.includes('isim') || 
-        normalized.includes('ogrenci') && !normalized.includes('no') ||
-        normalized === 'ad' ||
-        normalized === 'name') {
-      return 'ADI_SOYADI'
-    }
-    
-    // OKUL NO tespiti - "sira" İÇERMİYORSA ve şunlardan biriyse
-    if (!normalized.includes('sira')) {
-      if (normalized.includes('okul') ||
-          normalized.includes('ogrenci no') ||
-          normalized.includes('ogrenci numarasi') ||
-          normalized === 'numara' ||
-          normalized === 'no' ||
-          normalized === 'num') {
-        return 'OKUL_NO'
-      }
-    }
-    
+
     return null
   }
 
+  // Generate stable ID
+  const generateId = (studentNumber, name, index) => {
+    if (studentNumber) {
+      return `student-${studentNumber}-${Date.now()}`
+    }
+    return `student-${index}-${Date.now()}`
+  }
+
+  // Parse table data
+  const parseTableData = (rows, autoDetectHeader = true) => {
+    if (!rows || rows.length === 0) {
+      return { error: 'Veri bulunamadı.' }
+    }
+
+    let headerRowIndex = -1
+    let studentNumberCol = -1
+    let nameCol = -1
+
+    // Find header row
+    if (autoDetectHeader) {
+      for (let i = 0; i < Math.min(10, rows.length); i++) {
+        const row = rows[i]
+        if (!row || row.length < 1) continue
+
+        let foundHeaders = 0
+
+        for (let j = 0; j < row.length; j++) {
+          const cellValue = row[j]
+          if (!cellValue) continue
+
+          const columnType = detectColumnType(cellValue)
+
+          if (columnType === 'STUDENT_NUMBER' && studentNumberCol === -1) {
+            studentNumberCol = j
+            foundHeaders++
+          } else if (columnType === 'NAME' && nameCol === -1) {
+            nameCol = j
+            foundHeaders++
+          }
+        }
+
+        if (foundHeaders >= 1 && nameCol !== -1) {
+          headerRowIndex = i
+          break
+        }
+      }
+    } else {
+      headerRowIndex = -1
+      if (rows.length > 0) {
+        const firstRow = rows[0]
+        if (firstRow.length >= 2) {
+          studentNumberCol = 0
+          nameCol = 1
+        } else if (firstRow.length === 1) {
+          nameCol = 0
+        }
+      }
+    }
+
+    if (nameCol === -1) {
+      return {
+        error: 'İsim sütunu bulunamadı.\n\nLütfen en az "AD SOYAD" sütunu olduğundan emin olun.'
+      }
+    }
+
+    // Parse students
+    const parsedStudents = []
+    const startRow = headerRowIndex + 1
+    const seenNames = new Set()
+
+    for (let i = startRow; i < rows.length; i++) {
+      const row = rows[i]
+      if (!row || row.length === 0) continue
+
+      const rawName = row[nameCol]
+      const studentName = cleanValue(rawName)
+      if (!studentName) continue
+
+      if (seenNames.has(studentName.toLowerCase())) continue
+      seenNames.add(studentName.toLowerCase())
+
+      const rawNumber = studentNumberCol !== -1 ? row[studentNumberCol] : null
+      const studentNumber = cleanValue(rawNumber)
+
+      const siraNo = parsedStudents.length + 1
+
+      parsedStudents.push({
+        id: generateId(studentNumber, studentName, i),
+        siraNo: String(siraNo),
+        studentNumber: studentNumber || null,
+        no: studentNumber || null,
+        name: studentName,
+      })
+    }
+
+    if (parsedStudents.length === 0) {
+      return { error: 'Öğrenci verisi bulunamadı.' }
+    }
+
+    const hasNumbers = parsedStudents.some(s => s.studentNumber)
+    const warning = !hasNumbers
+      ? `⚠️ UYARI: Okul numarası bulunamadı.\n\n${parsedStudents.length} öğrenci yüklendi.`
+      : null
+
+    return { students: parsedStudents, warning }
+  }
+
+  // Parse Excel file
   const parseExcelFile = useCallback((file) => {
     const reader = new FileReader()
 
@@ -109,129 +192,17 @@ const ExcelUploader = ({ onStudentsImported, onNext, onBack, existingStudents, s
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]]
         const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 })
 
-        // Sütun indekslerini bul
-        let headerRowIndex = -1
-        let siraNoColIndex = -1
-        let okulNoColIndex = -1
-        let adiSoyadiColIndex = -1
-
-        // İlk 10 satırda başlık ara
-        for (let i = 0; i < Math.min(10, jsonData.length); i++) {
-          const row = jsonData[i]
-          if (!row || row.length < 2) continue
-
-          let foundHeaders = 0
-          
-          for (let j = 0; j < row.length; j++) {
-            const cellValue = row[j]
-            if (!cellValue) continue
-            
-            const columnType = detectColumnType(cellValue)
-            
-            if (columnType === 'SIRA_NO' && siraNoColIndex === -1) {
-              siraNoColIndex = j
-              foundHeaders++
-            } else if (columnType === 'OKUL_NO' && okulNoColIndex === -1) {
-              okulNoColIndex = j
-              foundHeaders++
-            } else if (columnType === 'ADI_SOYADI' && adiSoyadiColIndex === -1) {
-              adiSoyadiColIndex = j
-              foundHeaders++
-            }
-          }
-          
-          // En az 2 başlık bulunmuşsa bu satır başlık satırı
-          if (foundHeaders >= 2) {
-            headerRowIndex = i
-            break
-          }
-        }
-
-        // Debug bilgisi
-        const debug = {
-          headerRow: headerRowIndex,
-          headers: jsonData[headerRowIndex] || [],
-          mapping: {
-            'SIRA NO': siraNoColIndex,
-            'OKUL NO': okulNoColIndex,
-            'ADI SOYADI': adiSoyadiColIndex
-          },
-          firstDataRow: jsonData[headerRowIndex + 1] || []
-        }
-        console.log('📊 Excel Analizi:', debug)
-        setDebugInfo(debug)
-
-        // ADI SOYADI zorunlu
-        if (adiSoyadiColIndex === -1) {
-          setError(
-            'Excel dosyasında "ADI SOYADI" sütunu bulunamadı.\n\n' +
-            '📋 Lütfen şablonu indirip kullanın.\n' +
-            '📌 Gerekli sütun başlıkları:\n' +
-            '   • SIRA NO\n' +
-            '   • OKUL NO\n' +
-            '   • ADI SOYADI'
-          )
+        const result = parseTableData(jsonData, true)
+        if (result.error) {
+          setError(result.error)
           return
         }
 
-        // OKUL NO bulunamadıysa uyarı ver ama devam et
-        const hasOkulNo = okulNoColIndex !== -1
-
-        // Öğrenci verilerini parse et
-        const parsedStudents = []
-        
-        for (let i = headerRowIndex + 1; i < jsonData.length; i++) {
-          const row = jsonData[i]
-          if (!row || row.length === 0) continue
-
-          // ADI SOYADI - Zorunlu
-          const rawName = row[adiSoyadiColIndex]
-          const studentName = cleanValue(rawName)
-          if (!studentName) continue // İsim yoksa atla
-
-          // OKUL NO - Excel'den al (varsa)
-          const rawOkulNo = hasOkulNo ? row[okulNoColIndex] : null
-          const studentNumber = cleanValue(rawOkulNo)
-
-          // SIRA NO - Her zaman otomatik ata (Excel'deki değeri KULLANMA!)
-          const autoSiraNo = parsedStudents.length + 1
-
-          parsedStudents.push({
-            id: `student-${i}-${Date.now()}`,
-            siraNo: String(autoSiraNo),              // OTOMATİK SIRA
-            studentNumber: studentNumber,             // EXCEL'DEN OKUL NO
-            no: studentNumber,                        // Geriye uyumluluk
-            name: studentName,
-          })
-        }
-
-        console.log('📋 Oluşturulan öğrenci listesi:', parsedStudents.slice(0, 3))
-
-        if (parsedStudents.length === 0) {
-          setError('Excel dosyasında öğrenci verisi bulunamadı.')
-          return
-        }
-
-        // OKUL NO bulunamadıysa veya boşsa uyarı göster
-        const studentsWithoutNumber = parsedStudents.filter(s => !s.studentNumber).length
-        if (!hasOkulNo || studentsWithoutNumber === parsedStudents.length) {
-          setError(
-            `⚠️ UYARI: Excel dosyasında "OKUL NO" sütunu ${!hasOkulNo ? 'bulunamadı' : 'boş'}!\n\n` +
-            `${parsedStudents.length} öğrenci yüklendi ancak öğrenci numaraları eksik.\n\n` +
-            '📋 Doğru format için şablonu indirin:\n' +
-            '   SIRA NO | OKUL NO | ADI SOYADI\n' +
-            '   1       | 1453    | Ahmet YILMAZ'
-          )
-        } else {
-          setError(null)
-        }
-
-        setStudents(parsedStudents)
-        onStudentsImported(parsedStudents)
+        setStudents(result.students)
+        onStudentsImported(result.students)
         setFileName(file.name)
-        
+        setError(result.warning || null)
       } catch (err) {
-        console.error('Excel parsing error:', err)
         setError('Excel dosyası okunurken hata: ' + err.message)
       }
     }
@@ -243,30 +214,52 @@ const ExcelUploader = ({ onStudentsImported, onNext, onBack, existingStudents, s
     reader.readAsArrayBuffer(file)
   }, [onStudentsImported])
 
-  const handleDrop = useCallback((e) => {
-    e.preventDefault()
-    setIsDragging(false)
-    const files = e.dataTransfer.files
-    if (files.length > 0) {
-      const file = files[0]
-      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
-        parseExcelFile(file)
-      } else {
-        setError('Lütfen .xlsx veya .xls dosyası yükleyin.')
-      }
+  // Handle paste
+  const handlePaste = () => {
+    if (!pasteText.trim()) {
+      setError('Lütfen e-Okul listesini yapıştırın.')
+      return
     }
-  }, [parseExcelFile])
 
-  const handleDragOver = useCallback((e) => {
-    e.preventDefault()
-    setIsDragging(true)
-  }, [])
+    try {
+      const lines = pasteText.trim().split('\n')
+      const rows = lines.map(line => {
+        if (line.includes('\t')) {
+          return line.split('\t').map(cell => cell.trim())
+        }
+        return line.split(/\s{2,}/).map(cell => cell.trim())
+      })
 
-  const handleDragLeave = useCallback((e) => {
-    e.preventDefault()
-    setIsDragging(false)
-  }, [])
+      const result = parseTableData(rows, hasHeader)
+      if (result.error) {
+        setError(result.error)
+        return
+      }
 
+      setStudents(result.students)
+      onStudentsImported(result.students)
+      setError(result.warning || null)
+      setPasteText('')
+    } catch (err) {
+      setError('Yapıştırılan veri işlenirken hata: ' + err.message)
+    }
+  }
+
+  // Add manual student
+  const handleAddManual = () => {
+    const newStudent = {
+      id: `student-manual-${Date.now()}`,
+      siraNo: String(students.length + 1),
+      studentNumber: '',
+      no: '',
+      name: 'Yeni Öğrenci',
+    }
+    const updated = [...students, newStudent]
+    setStudents(updated)
+    onStudentsImported(updated)
+  }
+
+  // File input handler
   const handleFileInput = useCallback((e) => {
     const files = e.target.files
     if (files.length > 0) {
@@ -274,203 +267,281 @@ const ExcelUploader = ({ onStudentsImported, onNext, onBack, existingStudents, s
     }
   }, [parseExcelFile])
 
-  const handleManualEntry = () => {
-    const emptyStudents = Array.from({ length: 5 }, (_, i) => ({
-      id: `student-manual-${i}-${Date.now()}`,
-      siraNo: String(i + 1),
-      studentNumber: '',
-      no: '',
-      name: '',
-    }))
-    setStudents(emptyStudents)
-    onStudentsImported(emptyStudents)
-    setError(null)
-  }
-
-  return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Öğrenci Listesi</CardTitle>
-          <CardDescription>
-            Excel dosyası yükleyin veya manuel giriş yapın
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          
-          {/* ÖNEMLİ UYARI */}
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-            <div className="flex gap-3">
-              <Info className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div className="text-sm text-amber-800">
-                <p className="font-semibold mb-1">⚠️ Önemli: Excel Formatı</p>
-                <p>
-                  Excel dosyanızda <strong>"OKUL NO"</strong> sütunu ayrıca olmalıdır.
-                  <br />
-                  "SIRA NO" sütunundaki değerler öğrenci numarası olarak <u>kullanılmaz</u>.
-                </p>
+  // Compact toolbar mode
+  if (compact) {
+    return (
+      <div className="bg-slate-50 rounded-2xl border border-slate-200 p-5 h-full">
+        <div className="space-y-4">
+          {/* Header with mode tabs */}
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-semibold text-gray-700">Öğrenci Alma:</span>
+              <div className="flex items-center gap-1 bg-white border border-gray-200 p-1 rounded-lg">
+                <button
+                  onClick={() => setMode('excel')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${mode === 'excel'
+                      ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                    }`}
+                >
+                  Excel
+                </button>
+                <button
+                  onClick={() => setMode('paste')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${mode === 'paste'
+                      ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                    }`}
+                >
+                  Yapıştır
+                </button>
+                <button
+                  onClick={() => setMode('manual')}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${mode === 'manual'
+                      ? 'bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100'
+                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                    }`}
+                >
+                  Manuel
+                </button>
               </div>
             </div>
-          </div>
 
-          {/* Template Download */}
-          <div className="flex justify-center">
-            <Button
-              variant="outline"
-              onClick={downloadTemplate}
-              className="bg-white border-blue-200 text-blue-600 hover:bg-blue-50"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Doğru Formatlı Şablonu İndir
-            </Button>
-          </div>
-
-          {/* Format Gösterimi */}
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-            <p className="font-semibold text-blue-800 mb-3">📋 Beklenen Excel Formatı:</p>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="bg-blue-100">
-                    <th className="px-3 py-2 border border-blue-200 text-blue-700">SIRA NO</th>
-                    <th className="px-3 py-2 border border-blue-200 text-blue-700 bg-blue-200">OKUL NO ⭐</th>
-                    <th className="px-3 py-2 border border-blue-200 text-blue-700">ADI SOYADI</th>
-                  </tr>
-                </thead>
-                <tbody className="text-blue-700">
-                  <tr>
-                    <td className="px-3 py-1.5 border border-blue-200 text-gray-400">1</td>
-                    <td className="px-3 py-1.5 border border-blue-200 font-bold text-blue-600">1453</td>
-                    <td className="px-3 py-1.5 border border-blue-200">Ahmet YILMAZ</td>
-                  </tr>
-                  <tr>
-                    <td className="px-3 py-1.5 border border-blue-200 text-gray-400">2</td>
-                    <td className="px-3 py-1.5 border border-blue-200 font-bold text-blue-600">2587</td>
-                    <td className="px-3 py-1.5 border border-blue-200">Ayşe DEMİR</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <p className="text-blue-600 text-xs mt-2">
-              ⭐ <strong>OKUL NO</strong> sütunu öğrencinin gerçek numarasını içermelidir!
-            </p>
-          </div>
-
-          {/* Upload Area */}
-          <div
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            className={`
-              border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer
-              ${isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-blue-400'}
-            `}
-          >
-            <input
-              type="file"
-              id="file-upload"
-              className="hidden"
-              accept=".xlsx,.xls"
-              onChange={handleFileInput}
-            />
-            <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center space-y-4">
-              <div className="p-4 bg-blue-100 rounded-full">
-                <Upload className="w-8 h-8 text-blue-600" />
+            {/* Success badge */}
+            {students.length > 0 && !error && (
+              <div className="flex items-center gap-1.5 px-3 py-1 bg-green-50 border border-green-200 rounded-full shadow-sm">
+                <CheckCircle2 className="w-3.5 h-3.5 text-green-600" />
+                <span className="text-xs font-medium text-green-700">
+                  {students.length} öğrenci yüklendi
+                </span>
               </div>
+            )}
+          </div>
+
+          {/* Mode content */}
+          <div>
+            {mode === 'excel' && (
+              <div className="flex items-center gap-3">
+                <input
+                  type="file"
+                  id="file-upload-compact"
+                  className="hidden"
+                  accept=".xlsx,.xls"
+                  onChange={handleFileInput}
+                />
+                <label
+                  htmlFor="file-upload-compact"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-xl cursor-pointer transition-colors shadow-sm active:scale-95"
+                >
+                  <Upload className="w-4 h-4" />
+                  Dosya Seç
+                </label>
+                <span className="text-sm text-gray-500">.xlsx veya .xls dosyası</span>
+              </div>
+            )}
+
+            {mode === 'paste' && (
               <div className="space-y-2">
-                <p className="text-lg font-medium text-gray-800">
-                  Excel dosyasını sürükleyip bırakın
-                </p>
-                <p className="text-sm text-gray-500">
-                  veya tıklayarak seçin (.xlsx, .xls)
-                </p>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={hasHeader}
+                      onChange={(e) => setHasHeader(e.target.checked)}
+                      className="rounded"
+                    />
+                    İlk satır başlık
+                  </label>
+                </div>
+                <div className="flex gap-2">
+                  <textarea
+                    value={pasteText}
+                    onChange={(e) => setPasteText(e.target.value)}
+                    placeholder="e-Okul listesini buraya yapıştırın..."
+                    className="flex-1 h-20 px-2 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono resize-none"
+                  />
+                  <Button onClick={handlePaste} size="sm" className="self-end">
+                    İşle
+                  </Button>
+                </div>
               </div>
-            </label>
+            )}
+
+            {mode === 'manual' && (
+              <div className="flex items-center gap-3">
+                <Button onClick={handleAddManual} variant="outline" size="sm">
+                  Yeni Öğrenci Ekle
+                </Button>
+                <span className="text-xs text-gray-500">Tabloda düzenleyebilirsiniz</span>
+              </div>
+            )}
           </div>
 
           {/* Error/Warning */}
           {error && (
-            <Alert variant={error.includes('UYARI') ? 'default' : 'destructive'} 
-                   className={error.includes('UYARI') ? 'bg-amber-50 border-amber-300' : ''}>
-              <AlertCircle className={`h-4 w-4 ${error.includes('UYARI') ? 'text-amber-600' : ''}`} />
-              <AlertDescription className={`whitespace-pre-line ${error.includes('UYARI') ? 'text-amber-800' : ''}`}>
+            <Alert
+              variant={error.includes('UYARI') ? 'default' : 'destructive'}
+              className={`${error.includes('UYARI') ? 'bg-amber-50 border-amber-300' : ''}`}
+            >
+              <AlertCircle className={`h-3.5 w-3.5 ${error.includes('UYARI') ? 'text-amber-600' : ''}`} />
+              <AlertDescription className={`text-xs ${error.includes('UYARI') ? 'text-amber-800' : ''}`}>
                 {error}
               </AlertDescription>
             </Alert>
           )}
+        </div>
+      </div>
+    )
+  }
 
-          {/* Success */}
-          {students.length > 0 && !error && (
-            <Alert className="bg-green-50 border-green-200">
-              <CheckCircle2 className="h-4 w-4 text-green-600" />
-              <AlertDescription className="text-green-700">
-                <strong>{students.length} öğrenci</strong> başarıyla yüklendi ({fileName})
-              </AlertDescription>
-            </Alert>
-          )}
+  // Default card mode (left panel)
+  return (
+    <Card className="shadow-apple-lg">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Öğrenci Alma</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {/* Mode Selector */}
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={() => setMode('excel')}
+            className={`px-2.5 py-1.5 text-xs rounded-lg transition-all text-left ${mode === 'excel'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+          >
+            e-Okul Excel Yükle
+          </button>
+          <button
+            onClick={() => setMode('paste')}
+            className={`px-2.5 py-1.5 text-xs rounded-lg transition-all text-left ${mode === 'paste'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+          >
+            Kopyala-Yapıştır
+          </button>
+          <button
+            onClick={() => setMode('manual')}
+            className={`px-2.5 py-1.5 text-xs rounded-lg transition-all text-left ${mode === 'manual'
+              ? 'bg-blue-600 text-white'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+          >
+            Manuel Ekle
+          </button>
+        </div>
 
-          {/* Student List Preview */}
-          {students.length > 0 && (
-            <div className="space-y-3">
-              <h3 className="font-semibold text-gray-800">Öğrenci Listesi Önizleme:</h3>
-              <div className="max-h-72 overflow-y-auto border border-gray-200 rounded-xl">
-                <table className="w-full">
-                  <thead className="bg-gray-50 sticky top-0">
-                    <tr>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase w-16">Sıra</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-blue-600 uppercase">Okul No</th>
-                      <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Adı Soyadı</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {students.map((student) => (
-                      <tr key={student.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-2.5 text-sm text-gray-400">{student.siraNo}</td>
-                        <td className="px-4 py-2.5 text-sm font-bold text-blue-600">
-                          {student.studentNumber || <span className="text-red-400 font-normal">BOŞ!</span>}
-                        </td>
-                        <td className="px-4 py-2.5 text-sm text-gray-900">{student.name}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              
-              {/* Eksik numara uyarısı */}
-              {students.some(s => !s.studentNumber) && (
-                <p className="text-sm text-red-500">
-                  ⚠️ Bazı öğrencilerin okul numarası eksik! Excel dosyanızı kontrol edin.
-                </p>
-              )}
+        {/* Excel Upload Mode */}
+        {mode === 'excel' && (
+          <div className="space-y-3">
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center hover:border-blue-400 transition-all">
+              <input
+                type="file"
+                id="file-upload"
+                className="hidden"
+                accept=".xlsx,.xls"
+                onChange={handleFileInput}
+              />
+              <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center space-y-2">
+                <div className="p-2 bg-blue-100 rounded-full">
+                  <Upload className="w-5 h-5 text-blue-600" />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-xs font-medium text-gray-800">Dosya Seç</p>
+                  <p className="text-[10px] text-gray-500">.xlsx veya .xls</p>
+                </div>
+              </label>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Manual Entry */}
-          <div className="pt-4 border-t border-gray-200">
-            <Button variant="outline" onClick={handleManualEntry} className="w-full">
-              <FileSpreadsheet className="w-4 h-4 mr-2" />
-              Manuel Giriş Yap
+        {/* Paste Mode */}
+        {mode === 'paste' && (
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 text-xs text-gray-600">
+              <input
+                type="checkbox"
+                checked={hasHeader}
+                onChange={(e) => setHasHeader(e.target.checked)}
+                className="rounded"
+              />
+              İlk satır başlık
+            </label>
+            <textarea
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              placeholder="e-Okul listesini buraya yapıştırın..."
+              className="w-full h-24 px-2 py-1.5 text-[11px] border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+            />
+            <Button onClick={handlePaste} size="sm" className="w-full">
+              İşle
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        )}
 
-      {showNavigation && (
-        <div className="flex justify-between">
-          <Button onClick={onBack} variant="outline" size="lg">
-            Geri
-          </Button>
-          <Button
-            onClick={onNext}
-            size="lg"
-            disabled={students.length === 0}
-            className="min-w-[200px]"
+        {/* Manual Mode */}
+        {mode === 'manual' && (
+          <div className="space-y-3">
+            <p className="text-[11px] text-gray-600">
+              Boş öğrenci ekleyin, sağ panelde düzenleyin.
+            </p>
+            <Button onClick={handleAddManual} variant="outline" size="sm" className="w-full">
+              Yeni Öğrenci Ekle
+            </Button>
+          </div>
+        )}
+
+        {/* Error/Warning */}
+        {error && (
+          <Alert variant={error.includes('UYARI') ? 'default' : 'destructive'}
+            className={error.includes('UYARI') ? 'bg-amber-50 border-amber-300' : ''}>
+            <AlertCircle className={`h-4 w-4 ${error.includes('UYARI') ? 'text-amber-600' : ''}`} />
+            <AlertDescription className={`text-xs whitespace-pre-line ${error.includes('UYARI') ? 'text-amber-800' : ''}`}>
+              {error}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Success */}
+        {students.length > 0 && !error && (
+          <Alert className="bg-green-50 border-green-200">
+            <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <AlertDescription className="text-xs text-green-700">
+              ✅ <strong>{students.length} öğrenci</strong> yüklendi
+              {fileName && ` (${fileName})`}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Tips */}
+        <div className="pt-3 border-t border-gray-100">
+          <button
+            onClick={() => setShowTips(!showTips)}
+            className="flex items-center gap-2 text-xs font-medium text-gray-700 hover:text-gray-900 w-full"
           >
-            Sonraki Adım
-          </Button>
+            {showTips ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            İpuçları
+          </button>
+          {showTips && (
+            <div className="mt-2 space-y-2 text-xs text-gray-600">
+              <div className="flex gap-2">
+                <span className="text-blue-600">•</span>
+                <p>e-Okul'dan Excel indir → burada yükle</p>
+              </div>
+              <div className="flex gap-2">
+                <span className="text-blue-600">•</span>
+                <p>Listeyi kopyala → yapıştır</p>
+              </div>
+              <div className="flex gap-2">
+                <span className="text-blue-600">•</span>
+                <p>Sütun adları farklı olsa da sistem tanır</p>
+              </div>
+            </div>
+          )}
         </div>
-      )}
-    </div>
+      </CardContent>
+    </Card>
   )
 }
 
