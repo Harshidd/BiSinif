@@ -1,10 +1,9 @@
-import React, { useState, useMemo, useRef } from 'react'
+import React, { useState, useMemo } from 'react'
 import { Button } from './ui/Button'
 import { Download, Printer, FileSpreadsheet, LayoutGrid } from 'lucide-react'
-import jsPDF from 'jspdf'
-import html2canvas from 'html2canvas'
 import * as XLSX from 'xlsx'
 import { buildAnalysis } from '../core/analysisEngine'
+import { exportFullReportPDF } from './report/pdfExport'
 
 // Components
 import { AnalysisSidebar } from './analysis/AnalysisSidebar'
@@ -13,12 +12,10 @@ import { ClassAnalysisSection } from './analysis/ClassAnalysisSection'
 import { OutcomeAnalysisSection } from './analysis/OutcomeAnalysisSection'
 import { ItemAnalysisSection } from './analysis/ItemAnalysisSection'
 import { StudentReportSection } from './analysis/StudentReportSection'
-import ReportPrintView from './report/ReportPrintView'
 
 const AnalysisDashboard = ({ students, grades, questions, config }) => {
   const [activeSection, setActiveSection] = useState('ozet')
   const [isExporting, setIsExporting] = useState(false)
-  const printRef = useRef(null)
 
   // 1. Core Analysis Calculation
   const analysis = useMemo(() => {
@@ -37,146 +34,24 @@ const AnalysisDashboard = ({ students, grades, questions, config }) => {
     window.print()
   }
 
+  // PDF Export - @react-pdf/renderer ile profesyonel vektör PDF
   const exportToPDF = async () => {
-    setIsExporting(true)
-
-    const container = printRef.current
-    if (!container) {
-      console.error("Print reference not found")
-      alert("PDF hazırlanamadı: Bileşen yüklenemedi.")
-      setIsExporting(false)
-      return
-    }
-
-    // Store original styles for restoration
-    const originalStyles = {
-      position: container.style.position,
-      left: container.style.left,
-      top: container.style.top,
-      visibility: container.style.visibility,
-      display: container.style.display,
-      width: container.style.width,
-      height: container.style.height,
-      overflow: container.style.overflow,
-      opacity: container.style.opacity,
-      pointerEvents: container.style.pointerEvents,
-      zIndex: container.style.zIndex
-    }
-
+    console.log("PDF EXPORT: exportFullReportPDF ÇAĞRILDI", new Date().toISOString())
     try {
-      // Make container visible for capture (offscreen but fully rendered)
-      container.style.position = 'fixed'
-      container.style.left = '-10000px'
-      container.style.top = '0'
-      container.style.visibility = 'visible'
-      container.style.display = 'block'
-      container.style.width = '794px'
-      container.style.height = 'auto'
-      container.style.overflow = 'visible'
-      container.style.opacity = '1'
-      container.style.pointerEvents = 'none'
-      container.style.zIndex = '-1'
+      setIsExporting(true)
+      console.log('[PDF] Generating professional vector PDF...')
 
-      // Wait for fonts and rendering
-      if (document.fonts?.ready) {
-        await document.fonts.ready
-      }
-      // Double requestAnimationFrame for layout flush
-      await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
-      await new Promise(resolve => setTimeout(resolve, 300))
+      await exportFullReportPDF({
+        analysis,
+        config,
+        questions
+      })
 
-      const doc = new jsPDF('p', 'mm', 'a4')
-      const pages = container.querySelectorAll('.a4-page')
-      const pdfWidth = doc.internal.pageSize.getWidth()
-      const pdfHeight = doc.internal.pageSize.getHeight()
-
-      console.log('[PDF] Pages found:', pages.length)
-
-      if (pages.length === 0) {
-        throw new Error("Yazdırılacak sayfa bulunamadı (.a4-page elementi yok)")
-      }
-
-      let addedPages = 0
-      for (let i = 0; i < pages.length; i++) {
-        const pageEl = pages[i]
-
-        // Force page dimensions if zero
-        let rect = pageEl.getBoundingClientRect()
-        console.log(`[PDF] Page ${i + 1} initial rect:`, rect.width, 'x', rect.height)
-
-        if (rect.height < 10) {
-          // Force explicit dimensions
-          pageEl.style.minHeight = '1123px'
-          pageEl.style.height = '1123px'
-          pageEl.style.width = '794px'
-          pageEl.style.display = 'block'
-          pageEl.style.visibility = 'visible'
-
-          // Re-flush layout
-          await new Promise(r => requestAnimationFrame(r))
-          rect = pageEl.getBoundingClientRect()
-          console.log(`[PDF] Page ${i + 1} after fix:`, rect.width, 'x', rect.height)
-        }
-
-        if (rect.height < 10) {
-          console.error(`[PDF] Page ${i + 1} still has zero height, skipping`)
-          continue
-        }
-
-        if (addedPages > 0) doc.addPage()
-
-        const canvas = await html2canvas(pageEl, {
-          scale: 2,
-          backgroundColor: '#ffffff',
-          useCORS: true,
-          allowTaint: false,
-          imageTimeout: 15000,
-          logging: false
-        })
-
-        console.log(`[PDF] Canvas ${i + 1}:`, canvas?.width, 'x', canvas?.height)
-
-        if (!canvas || canvas.width < 10 || canvas.height < 10) {
-          throw new Error(`Canvas boş (sayfa ${i + 1}): ${canvas?.width}x${canvas?.height}`)
-        }
-
-        let imgData
-        try {
-          imgData = canvas.toDataURL('image/jpeg', 0.92)
-        } catch (e) {
-          throw new Error(`toDataURL hatası (sayfa ${i + 1}): ${e?.message || e}`)
-        }
-
-        if (!imgData || !imgData.startsWith('data:image/')) {
-          throw new Error(`Geçersiz dataURL (sayfa ${i + 1})`)
-        }
-
-        doc.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST')
-        addedPages++
-      }
-
-      if (addedPages === 0) {
-        throw new Error("Hiçbir sayfa PDF'e eklenemedi")
-      }
-
-      doc.save(`NetAnaliz_Rapor_${new Date().toISOString().slice(0, 10)}.pdf`)
-      console.log('[PDF] Export complete!', addedPages, 'pages')
+      console.log('[PDF] Export complete!')
     } catch (error) {
       console.error('[PDF] Export Error:', error)
-      alert('PDF oluşturulurken bir hata oluştu: ' + error.message)
+      alert('PDF oluşturulurken bir hata oluştu: ' + (error?.message || error))
     } finally {
-      // Restore original styles
-      container.style.position = originalStyles.position
-      container.style.left = originalStyles.left
-      container.style.top = originalStyles.top
-      container.style.visibility = originalStyles.visibility
-      container.style.display = originalStyles.display
-      container.style.width = originalStyles.width
-      container.style.height = originalStyles.height
-      container.style.overflow = originalStyles.overflow
-      container.style.opacity = originalStyles.opacity
-      container.style.pointerEvents = originalStyles.pointerEvents
-      container.style.zIndex = originalStyles.zIndex
       setIsExporting(false)
     }
   }
@@ -268,13 +143,6 @@ const AnalysisDashboard = ({ students, grades, questions, config }) => {
               {renderSection()}
             </div>
           </main>
-        </div>
-      </div>
-
-      {/* Hidden Print Container for PDF Generation - Offscreen but rendered */}
-      <div style={{ position: 'absolute', top: 0, left: '-9999px', width: '210mm' }}>
-        <div ref={printRef}>
-          <ReportPrintView analysis={analysis} config={config} />
         </div>
       </div>
     </div>

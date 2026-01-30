@@ -556,6 +556,31 @@ const SetupAndGradesStep = ({
               students={students}
               grades={grades}
               onGradesChange={onGradesChange}
+              onStudentUpdate={(studentId, patch) => {
+                const nextStudents = students.map(s =>
+                  s.id === studentId ? { ...s, ...patch } : s
+                )
+                onStudentsChange(nextStudents)
+              }}
+              onDeleteStudent={(studentId) => {
+                if (!window.confirm('Bu öğrenciyi silmek istediğinizden emin misiniz?')) return
+                const nextStudents = students.filter(s => s.id !== studentId)
+                onStudentsChange(nextStudents)
+                // grades'ten de sil
+                const nextGrades = { ...grades }
+                delete nextGrades[studentId]
+                onGradesChange(nextGrades)
+              }}
+              onAddStudent={() => {
+                const newStudent = {
+                  id: Date.now(),
+                  siraNo: students.length + 1,
+                  no: '',
+                  studentNumber: '',
+                  name: ''
+                }
+                onStudentsChange([...students, newStudent])
+              }}
               showNavigation={false}
             />
           )}

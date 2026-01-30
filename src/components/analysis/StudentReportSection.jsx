@@ -1,14 +1,17 @@
 import React, { useState, useMemo } from 'react'
 import { Card, CardContent } from '../ui/Card'
-import { User, Printer, Building2, Calendar } from 'lucide-react'
+import { User, Printer, Building2, Calendar, Download, FileDown } from 'lucide-react'
 import { Alert, AlertDescription } from '../ui/Alert'
 import { Button } from '../ui/Button'
+import { exportSingleStudentPDF, exportStudentCardsPDF } from '../report/pdfExport'
 import {
     BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
 
 export const StudentReportSection = ({ analysis, config }) => {
     const [selectedStudentId, setSelectedStudentId] = useState('')
+    const [isExporting, setIsExporting] = useState(false)
+    const [isExportingAll, setIsExportingAll] = useState(false)
     const students = analysis?.studentResults ?? []
 
     // 1) ID Güvenliği: Number vs String mismatch önlemi
@@ -70,6 +73,45 @@ export const StudentReportSection = ({ analysis, config }) => {
 
     const handlePrint = () => window.print()
 
+    // Tek öğrenci PDF export
+    const handlePDFExport = async () => {
+        if (!selectedStudent) return
+        try {
+            setIsExporting(true)
+            await exportSingleStudentPDF({
+                analysis,
+                config,
+                student: selectedStudent
+            })
+        } catch (error) {
+            console.error('[PDF] Export Error:', error)
+            alert('PDF oluşturulurken bir hata oluştu: ' + (error?.message || error))
+        } finally {
+            setIsExporting(false)
+        }
+    }
+
+    // Tüm öğrencilerin karnelerini PDF olarak indir (1 öğrenci / 1 sayfa)
+    const handleAllCardsPDF = async () => {
+        if (students.length === 0) {
+            alert('İndirilecek öğrenci karnesi bulunmuyor.')
+            return
+        }
+        try {
+            setIsExportingAll(true)
+            await exportStudentCardsPDF({
+                analysis,
+                config,
+                students
+            })
+        } catch (error) {
+            console.error('[PDF] All Cards Export Error:', error)
+            alert('PDF oluşturulurken bir hata oluştu: ' + (error?.message || error))
+        } finally {
+            setIsExportingAll(false)
+        }
+    }
+
     // Safe Total for Student
     const safeStudentTotal = selectedStudent ? getSafeTotal(selectedStudent.total) : 0
     const safeStudentName = selectedStudent ? (selectedStudent.name ?? 'İsimsiz') : ''
@@ -82,9 +124,23 @@ export const StudentReportSection = ({ analysis, config }) => {
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-900">Öğrenci Karnesi</h2>
-                <p className="text-slate-500">Bireysel öğrenci performans raporu</p>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h2 className="text-2xl font-bold text-slate-900">Öğrenci Karnesi</h2>
+                    <p className="text-slate-500">Bireysel öğrenci performans raporu</p>
+                </div>
+                {/* Tüm Karneleri İndir Butonu */}
+                {students.length > 0 && (
+                    <Button
+                        onClick={handleAllCardsPDF}
+                        disabled={isExportingAll}
+                        variant="outline"
+                        className="no-print"
+                    >
+                        <FileDown className="w-4 h-4 mr-2" />
+                        {isExportingAll ? 'Hazırlanıyor...' : `Tüm Karneler (${students.length})`}
+                    </Button>
+                )}
             </div>
 
             {/* Selector Card */}
@@ -114,6 +170,15 @@ export const StudentReportSection = ({ analysis, config }) => {
                         </div>
                         {selectedStudent && (
                             <div className="flex gap-2 self-end no-print">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={handlePDFExport}
+                                    disabled={isExporting}
+                                >
+                                    <Download className="w-4 h-4 mr-2" />
+                                    {isExporting ? 'Hazırlanıyor...' : 'PDF İndir'}
+                                </Button>
                                 <Button variant="outline" size="sm" onClick={handlePrint}>
                                     <Printer className="w-4 h-4 mr-2" /> Yazdır
                                 </Button>

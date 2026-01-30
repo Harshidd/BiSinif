@@ -243,7 +243,7 @@ function App() {
       <header className="bg-white/90 backdrop-blur-xl border-b border-gray-200/50 no-print sticky top-0 z-50">
         <div className="container mx-auto px-4 lg:px-8">
           <div className="flex items-center justify-between h-14">
-            
+
             {/* Sol: Geri Butonu + Logo */}
             <div className="flex items-center gap-3">
               {/* GERİ BUTONU - Standart Sol Üst Konum */}
@@ -258,16 +258,16 @@ function App() {
                   <span className="hidden sm:inline ml-1">Geri</span>
                 </Button>
               )}
-              
+
               {/* Logo */}
-              <h1 
+              <h1
                 className="text-lg font-bold text-gray-900 tracking-tight cursor-pointer"
                 onClick={() => currentStep > 1 && setCurrentStep(1)}
               >
                 NetAnaliz
               </h1>
             </div>
-            
+
             {/* Orta: Step Indicator */}
             <nav className="hidden md:flex items-center gap-1 bg-gray-100 rounded-full px-1 py-1">
               {steps.map((step) => (
@@ -275,13 +275,12 @@ function App() {
                   key={step.number}
                   onClick={() => step.number <= currentStep && setCurrentStep(step.number)}
                   disabled={step.number > currentStep}
-                  className={`px-4 py-1.5 text-sm rounded-full transition-all ${
-                    currentStep === step.number
+                  className={`px-4 py-1.5 text-sm rounded-full transition-all ${currentStep === step.number
                       ? 'bg-white text-gray-900 font-medium shadow-sm'
                       : step.number < currentStep
-                      ? 'text-gray-600 hover:text-gray-900'
-                      : 'text-gray-400 cursor-not-allowed'
-                  }`}
+                        ? 'text-gray-600 hover:text-gray-900'
+                        : 'text-gray-400 cursor-not-allowed'
+                    }`}
                 >
                   {step.title}
                 </button>
@@ -289,15 +288,19 @@ function App() {
             </nav>
 
             {/* Sağ: Yeni Analiz */}
-            {currentStep === 5 ? (
+            {currentStep > 1 ? (
               <Button
-                onClick={handleNewAnalysis}
+                onClick={() => {
+                  if (window.confirm('Tüm veriler silinecek ve yeni bir sınav başlatılacak. Devam etmek istiyor musunuz?')) {
+                    handleNewAnalysis()
+                  }
+                }}
                 variant="ghost"
                 size="sm"
                 className="text-blue-600 hover:bg-blue-50"
               >
                 <RotateCcw className="w-4 h-4 mr-1.5" />
-                <span className="hidden sm:inline">Yeni Analiz</span>
+                <span className="hidden sm:inline">Yeni Sınav</span>
               </Button>
             ) : (
               <div className="w-24" /> // Placeholder for alignment
@@ -308,7 +311,7 @@ function App() {
 
       {/* Progress Bar */}
       <div className="h-1 bg-gray-200 no-print">
-        <div 
+        <div
           className="h-full bg-blue-500 transition-all duration-500 ease-out"
           style={{ width: `${(currentStep / steps.length) * 100}%` }}
         />

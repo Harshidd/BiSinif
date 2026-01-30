@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Input } from './ui/Input'
 import { Button } from './ui/Button'
 import { Alert, AlertDescription } from './ui/Alert'
-import { AlertTriangle, AlertCircle, Zap } from 'lucide-react'
+import { AlertTriangle, AlertCircle, Zap, Trash2, Plus } from 'lucide-react'
 
 // Helper for integer-only distribution logic
 // Strictly follows integer arithmetic to guarantee totals
@@ -55,7 +55,7 @@ const distributeIntegerTotal = (total, maxScores) => {
   return scores
 }
 
-const GradingTable = ({ config, questions = [], students, grades: existingGrades, onGradesChange, onNext, onBack, showNavigation = true }) => {
+const GradingTable = ({ config, questions = [], students, grades: existingGrades, onGradesChange, onStudentUpdate, onDeleteStudent, onAddStudent, onNext, onBack, showNavigation = true }) => {
   const [grades, setGrades] = useState({})
   const [warnings, setWarnings] = useState({})
   const [totalInputWarnings, setTotalInputWarnings] = useState({})
@@ -367,9 +367,9 @@ const GradingTable = ({ config, questions = [], students, grades: existingGrades
               <table className="w-full table-fixed min-w-[max-content] border-collapse">
                 <thead className="bg-gray-50 sticky top-0 z-30 shadow-sm">
                   <tr>
-                    <th className="sticky left-0 z-30 bg-white px-2 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-12 min-w-[3rem] max-w-[3rem]">Sıra</th>
-                    <th className="sticky z-30 bg-white px-2 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-[4.5rem] min-w-[4.5rem] max-w-[4.5rem]" style={{ left: '3rem' }}>No</th>
-                    <th className="sticky z-30 bg-white px-2 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-40 min-w-[10rem] max-w-[10rem] border-r border-gray-100" style={{ left: '7.5rem' }}>Ad Soyad</th>
+                    <th className="sticky left-0 z-30 bg-white px-2 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-12 min-w-[3rem] max-w-[3rem]">#</th>
+                    <th className="sticky z-30 bg-white px-2 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-[5rem] min-w-[5rem] max-w-[5rem]" style={{ left: '3rem' }}>No</th>
+                    <th className="sticky z-30 bg-white px-2 py-2 text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-44 min-w-[11rem] max-w-[11rem] border-r border-gray-100" style={{ left: '8rem' }}>Ad Soyad</th>
 
                     {questions.map((question) => {
                       const outcomeIndex = question.outcomeId !== '' ? Number(question.outcomeId) : NaN
@@ -392,6 +392,7 @@ const GradingTable = ({ config, questions = [], students, grades: existingGrades
                       <div>Toplam</div>
                       <div className="text-[9px] font-normal text-amber-600 normal-case">(max: {maxTotalScore})</div>
                     </th>
+                    <th className="px-1 py-2 text-center text-[10px] font-semibold text-gray-400 uppercase tracking-wide w-10 min-w-[2.5rem] bg-gray-50">Sil</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
@@ -404,8 +405,24 @@ const GradingTable = ({ config, questions = [], students, grades: existingGrades
                     return (
                       <tr key={student.id} className="hover:bg-gray-50 transition-colors">
                         <td className="sticky left-0 z-20 bg-white px-2 py-2 text-xs text-gray-600 text-center w-12 min-w-[3rem] max-w-[3rem]">{student.siraNo}</td>
-                        <td className="sticky z-20 bg-white px-2 py-2 text-xs font-medium text-gray-700 w-[4.5rem] min-w-[4.5rem] max-w-[4.5rem] whitespace-nowrap overflow-hidden text-ellipsis" style={{ left: '3rem' }} title={student.studentNumber || student.no || '-'}>{student.studentNumber || student.no || '-'}</td>
-                        <td className="sticky z-20 bg-white px-2 py-2 text-xs font-medium text-gray-900 w-40 min-w-[10rem] max-w-[10rem] truncate border-r border-gray-100" style={{ left: '7.5rem' }} title={student.name}>{student.name}</td>
+                        <td className="sticky z-20 bg-white px-1 py-1 w-[5rem] min-w-[5rem] max-w-[5rem]" style={{ left: '3rem' }}>
+                          <Input
+                            type="text"
+                            value={student.studentNumber || student.no || ''}
+                            onChange={(e) => onStudentUpdate?.(student.id, { no: e.target.value, studentNumber: e.target.value })}
+                            className="text-xs h-7 px-1 w-full text-center border-transparent hover:border-gray-300 focus:border-blue-500"
+                            placeholder="No"
+                          />
+                        </td>
+                        <td className="sticky z-20 bg-white px-1 py-1 w-44 min-w-[11rem] max-w-[11rem] border-r border-gray-100" style={{ left: '8rem' }}>
+                          <Input
+                            type="text"
+                            value={student.name || ''}
+                            onChange={(e) => onStudentUpdate?.(student.id, { name: e.target.value })}
+                            className="text-xs h-7 px-2 w-full border-transparent hover:border-gray-300 focus:border-blue-500"
+                            placeholder="Ad Soyad"
+                          />
+                        </td>
 
                         {questions.map((question) => {
                           const hasWarning = warnings[`${student.id}-${question.qNo}`]
@@ -464,9 +481,36 @@ const GradingTable = ({ config, questions = [], students, grades: existingGrades
                             </div>
                           )}
                         </td>
+
+                        {/* Silme Butonu */}
+                        <td className="px-1 py-1 text-center bg-gray-50/50">
+                          <button
+                            type="button"
+                            onClick={() => onDeleteStudent?.(student.id)}
+                            className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="Öğrenciyi sil"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
                       </tr>
                     )
                   })}
+                  {/* Yeni Öğrenci Ekle Satırı */}
+                  {onAddStudent && (
+                    <tr className="bg-blue-50/50 hover:bg-blue-100/50 transition-colors">
+                      <td colSpan={questions.length + 5} className="px-4 py-2 text-center">
+                        <button
+                          type="button"
+                          onClick={onAddStudent}
+                          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-100 rounded-lg transition-colors"
+                        >
+                          <Plus className="w-4 h-4" />
+                          Yeni Öğrenci Ekle
+                        </button>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -484,20 +528,45 @@ const GradingTable = ({ config, questions = [], students, grades: existingGrades
               return (
                 <Card key={student.id} className={`shadow-md ${isOverMax ? 'border-red-400 border-2' : ''}`}>
                   <CardHeader className="pb-3">
-                    <div className="flex justify-between items-start">
-                      <CardTitle className="text-lg">
-                        {student.siraNo}. {student.name}
-                        <span className="text-sm font-normal text-blue-600 ml-2">({student.studentNumber || student.no || '-'})</span>
-                      </CardTitle>
-                      {isPassing ? (
-                        <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-sm font-medium">
-                          Geçti
-                        </span>
-                      ) : (
-                        <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-sm font-medium">
-                          Kaldı
-                        </span>
-                      )}
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="flex-1 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-gray-500 font-mono">{student.siraNo}.</span>
+                          <Input
+                            type="text"
+                            value={student.studentNumber || student.no || ''}
+                            onChange={(e) => onStudentUpdate?.(student.id, { no: e.target.value, studentNumber: e.target.value })}
+                            className="h-8 w-20 text-sm text-center"
+                            placeholder="No"
+                          />
+                        </div>
+                        <Input
+                          type="text"
+                          value={student.name || ''}
+                          onChange={(e) => onStudentUpdate?.(student.id, { name: e.target.value })}
+                          className="h-9 text-base font-medium"
+                          placeholder="Ad Soyad"
+                        />
+                      </div>
+                      <div className="flex flex-col items-end gap-2">
+                        {isPassing ? (
+                          <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-sm font-medium">
+                            Geçti
+                          </span>
+                        ) : (
+                          <span className="px-2 py-1 bg-red-100 text-red-700 rounded text-sm font-medium">
+                            Kaldı
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onDeleteStudent?.(student.id)}
+                          className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                          title="Öğrenciyi sil"
+                        >
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-3">
@@ -574,6 +643,22 @@ const GradingTable = ({ config, questions = [], students, grades: existingGrades
                 </Card>
               )
             })}
+
+            {/* Mobile: Yeni Öğrenci Ekle Butonu */}
+            {onAddStudent && (
+              <Card className="shadow-md border-dashed border-2 border-blue-200 bg-blue-50/50">
+                <CardContent className="py-4">
+                  <button
+                    type="button"
+                    onClick={onAddStudent}
+                    className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-100 rounded-lg transition-colors"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Yeni Öğrenci Ekle
+                  </button>
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           <div className="mt-4 p-4 bg-slate-100 rounded-lg">
