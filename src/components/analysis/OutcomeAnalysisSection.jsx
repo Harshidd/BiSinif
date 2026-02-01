@@ -58,10 +58,7 @@ export const OutcomeAnalysisSection = ({ analysis, config }) => {
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
-            <div>
-                <h2 className="text-2xl font-bold text-slate-900">Kazanım Analizi</h2>
-                <p className="text-slate-500">Konu bazlı başarı ve telafi ihtiyaçları</p>
-            </div>
+
 
             {/* Kazanım Grafiği */}
             <Card className="border border-slate-200 shadow-sm">
