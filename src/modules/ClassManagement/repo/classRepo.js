@@ -5,6 +5,7 @@ import {
 } from '../storage/classStorage'
 import { v4 as uuidv4 } from 'uuid'
 import { generateStudentId } from '../utils/studentId'
+import { seatingRepo } from '../seating/repo/seatingRepo'
 
 // ID Migration Helper
 const migrateProfilesIfNeeded = () => {
@@ -125,10 +126,36 @@ export const classRepo = {
         return { added: addedCount, updated: updatedCount }
     },
 
-    removeRosterStudent: (rosterId) => {
+    deleteStudentCascade: (studentId) => {
+        // 1. Clean Roster
         const roster = loadRoster()
-        const filtered = roster.filter(s => s.rosterId !== rosterId)
-        saveRoster(filtered)
+        const filteredRoster = roster.filter(s => s.rosterId !== studentId)
+        saveRoster(filteredRoster)
+
+        // 2. Clean Profiles
+        const profiles = loadProfiles()
+        if (profiles[studentId]) {
+            delete profiles[studentId]
+            saveProfiles(profiles)
+        }
+
+        // 3. Clean Conflicts
+        const conflicts = loadConflicts()
+        const filteredConflicts = conflicts.filter(c => c.studentIdA !== studentId && c.studentIdB !== studentId)
+        if (conflicts.length !== filteredConflicts.length) {
+            saveConflicts(filteredConflicts)
+        }
+
+        // 4. Cascade to Seating Module
+        // We import dynamically to avoid circular dependency issues if any, 
+        // though strictly they might be fine. Importing at top is better.
+        // Assuming we update imports at the top.
+        // For now, let's assume we imported seatingRepo at the top.
+        try {
+            seatingRepo.removeStudentFromAllRecords(studentId)
+        } catch (e) {
+            console.error('Failed to cascade delete to seating module:', e)
+        }
     },
 
     // 2. Get Students (View Layer)
@@ -175,11 +202,13 @@ export const classRepo = {
                 name: s.fullName,
                 no: s.schoolNo,
                 studentNumber: s.schoolNo,
+                gender: s.gender,
                 _profile: {
                     talkativeness: profile.talkativeness ?? 3,
                     attention: profile.attention ?? 3,
                     disciplineRisk: profile.disciplineRisk ?? 0,
                     specialNeeds: profile.specialNeeds ?? '',
+                    tags: profile.tags || [],
                     notes: profile.notes ?? '',
                     updatedAt: profile.updatedAt
                 }
@@ -237,4 +266,8 @@ export const classRepo = {
         const filtered = conflicts.filter(c => c.id !== conflictId)
         saveConflicts(filtered)
     },
+
+    // 5. Meta/Settings Management
+    loadMeta: () => loadMeta(),
+    saveMeta: (data) => saveMeta(data)
 }

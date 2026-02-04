@@ -31,35 +31,62 @@ const styles = StyleSheet.create({
         backgroundColor: '#FFFFFF'
     },
     // --- Layout 1: Scene Plan (Full Scale) ---
-    sceneHeader: {
+    topAntet: {
         position: 'absolute',
         top: 20,
         left: 30,
         right: 30,
         flexDirection: 'row',
+        justifyContent: 'center',
+        alignItems: 'center',
+        borderBottom: `1pt solid #E2E8F0`,
+        paddingBottom: 6,
+        marginBottom: 10
+    },
+    topAntetText: {
+        fontSize: 10,
+        color: '#64748B',
+        fontWeight: 'medium',
+        textTransform: 'uppercase',
+        letterSpacing: 0.5
+    },
+    sceneHeader: {
+        position: 'absolute',
+        top: 50, // Adjusted down
+        left: 30,
+        right: 30,
+        flexDirection: 'row',
         justifyContent: 'space-between',
-        alignItems: 'center'
+        alignItems: 'flex-start'
+    },
+    sceneTitleBox: {
+        flexDirection: 'column'
     },
     sceneTitle: {
-        fontSize: 12,
+        fontSize: 14,
         fontWeight: 'bold',
-        color: THEME.textLight,
+        color: THEME.textDark,
         textTransform: 'uppercase',
         letterSpacing: 1
     },
+    sceneSubTitle: {
+        fontSize: 10,
+        color: THEME.textLight,
+        marginTop: 2
+    },
     sceneDate: {
         fontSize: 9,
-        color: '#94A3B8'
+        color: '#94A3B8',
+        textAlign: 'right'
     },
 
     // A large container for the classroom "scene"
     sceneContainer: {
-        marginTop: 50,
+        marginTop: 80, // Increased for new header
         flex: 1,
         paddingHorizontal: 30,
         paddingBottom: 40,
         alignItems: 'center',
-        // 'justifyContent' is dynamic based on density
     },
 
     // Scene Elements
@@ -86,7 +113,7 @@ const styles = StyleSheet.create({
         borderRadius: 4,
         alignItems: 'center',
         justifyContent: 'center',
-        marginBottom: 20 // Dynamic spacing could be applied here
+        marginBottom: 20
     },
     teacherLabel: {
         fontSize: 7,
@@ -112,7 +139,6 @@ const styles = StyleSheet.create({
         textTransform: 'uppercase'
     },
 
-    // Grid Scaling handled inline
     row: {
         flexDirection: 'row',
         justifyContent: 'center'
@@ -128,6 +154,7 @@ const styles = StyleSheet.create({
         borderBottomColor: '#CBD5E1'
     },
     deskDouble: { flexDirection: 'row' },
+    deskSingle: {},
 
     seat: {
         width: '50%', // Relative to desk box
@@ -261,7 +288,6 @@ const styles = StyleSheet.create({
 
 const Seat = ({ student, isPinned, isDouble, side, isViolation, fontSize, noFontSize }) => {
     const containerStyle = [styles.seat]
-    // Width is handled by flex in parent desk, but we need to ensure styling correct
     if (isDouble) {
         containerStyle.push({ width: '50%' })
     } else {
@@ -309,43 +335,26 @@ const SceneGrid = ({ setup, assignments, students, violations, pinnedSeats }) =>
     const violationSet = new Set(violations.map(v => v.seatId))
 
     // === DYNAMIC SCALING CALCULATION ===
-    // Available Space (Approximation for A4 Landscape with padding)
     const AVAIL_WIDTH = 750
-    const AVAIL_HEIGHT = 400 // Reduced slightly to account for headers/teacher desk
+    const AVAIL_HEIGHT = 400
 
-    // Base limits
     const MIN_DESK_W = 90
     const MAX_DESK_W = 180
     const MIN_DESK_H = 60
     const MAX_DESK_H = 110
-
-    // Gaps
     const GAP_X = 15
     const GAP_Y = 15
-
-    // Config
     const isDouble = setup.deskType === 'double'
 
-    // Calculate raw dimensions
     let calcW = (AVAIL_WIDTH - (cols.length * GAP_X)) / cols.length
     let calcH = (AVAIL_HEIGHT - (rows.length * GAP_Y)) / rows.length
 
-    // Double desk needs double width if we treat col as desk unit? 
-    // Usually 'cols' implies desk columns. If deskType is double, the desk gets wider.
-    // Let's assume calculated 'calcW' is for the DESK UNIT itself.
-    // If it's too wide, clamping kicks in.
-
-    // Clamping
     const finalW = Math.min(Math.max(calcW, MIN_DESK_W), MAX_DESK_W)
     const finalH = Math.min(Math.max(calcH, MIN_DESK_H), MAX_DESK_H)
 
-    // Calculate dynamic Font Sizes relative to Desk Height
     const fontSizeName = Math.max(10, Math.min(14, finalH * 0.2))
     const fontSizeNo = Math.max(7, Math.min(9, finalH * 0.15))
 
-    // Vertical Justification Strategy
-    // If total height is small relative to page, center vertically. 
-    // If it fills page, start from top.
     const totalContentHeight = rows.length * (finalH + GAP_Y)
     const justifyMethod = totalContentHeight < 300 ? 'center' : 'flex-start'
 
@@ -409,92 +418,122 @@ const SceneGrid = ({ setup, assignments, students, violations, pinnedSeats }) =>
     )
 }
 
-export const ClassSeatingPDF = ({ setup, assignments, students, reportData, violations }) => (
-    <Document>
-        <Page size="A4" orientation="landscape" style={styles.page}>
-            <View style={styles.sceneHeader}>
-                <Text style={styles.sceneTitle}>BiSınıf | {reportData.displayTitle}</Text>
-                <Text style={styles.sceneDate}>{reportData.generatedAt}</Text>
-            </View>
-            <SceneGrid
-                setup={setup}
-                assignments={assignments}
-                students={students}
-                violations={violations}
-                pinnedSeats={assignments.pinnedSeatIds || []}
-            />
-            <View style={styles.legendBar}>
-                <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, { backgroundColor: THEME.primary }]} />
-                    <Text style={styles.legendLabel}>Özel Durum</Text>
-                </View>
-                <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, { backgroundColor: '#F59E0B' }]} />
-                    <Text style={styles.legendLabel}>Kilitli</Text>
-                </View>
-                <View style={styles.legendItem}>
-                    <View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} />
-                    <Text style={styles.legendLabel}>Uyarı</Text>
-                </View>
-            </View>
-        </Page>
+export const ClassSeatingPDF = ({ setup, assignments, students, reportData, violations, meta }) => {
+    // Format Top Antet String
+    const antetParts = [
+        meta?.schoolName,
+        meta?.className,
+        meta?.teacherName,
+        meta?.term
+    ].filter(Boolean)
 
-        <Page size="A4" style={styles.page}>
-            <View style={styles.reportHeader}>
-                <View>
-                    <Text style={styles.reportTitle}>{reportData.displayTitle}</Text>
-                    <Text style={{ fontSize: 9, color: '#94A3B8' }}>Pedagojik Gerekçe ve Analiz Raporu</Text>
+    const antetString = antetParts.length > 0 ? antetParts.join('  |  ') : 'BiSınıf Akıllı Sınıf Yönetim Sistemi'
+
+    return (
+        <Document>
+            <Page size="A4" orientation="landscape" style={styles.page}>
+                {/* Top Single-Line Antet */}
+                <View style={styles.topAntet}>
+                    <Text style={styles.topAntetText}>{antetString}</Text>
                 </View>
-                <Text style={styles.reportSub}>BiSınıf v2.5</Text>
-            </View>
-            <View style={styles.sectionBox}>
-                <View style={styles.sectionHeader}>
-                    <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: THEME.primary }} />
-                    <Text style={styles.sectionTitle}>Amaç ve Kapsam</Text>
-                </View>
-                <Text style={styles.bulletText}>{reportData.purpose}</Text>
-            </View>
-            <View style={styles.sectionBox}>
-                <View style={styles.sectionHeader}>
-                    <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: THEME.primary }} />
-                    <Text style={styles.sectionTitle}>Uygulanan Kriterler</Text>
-                </View>
-                {reportData.criteria.map((c, i) => (
-                    <Text key={i} style={styles.bulletText}>• {c}</Text>
-                ))}
-            </View>
-            <View style={styles.sectionBox}>
-                <View style={styles.sectionHeader}>
-                    <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: THEME.primary }} />
-                    <Text style={styles.sectionTitle}>Oluşturma Özeti</Text>
-                </View>
-                <View style={styles.kpiRow}>
-                    <View style={styles.kpiCard}>
-                        <Text style={styles.kpiVal}>{students.length}</Text>
-                        <Text style={styles.kpiLabel}>Öğrenci</Text>
+
+                <View style={styles.sceneHeader}>
+                    <View style={styles.sceneTitleBox}>
+                        <Text style={styles.sceneTitle}>OTURMA PLANI</Text>
                     </View>
-                    <View style={styles.kpiCard}>
-                        <Text style={styles.kpiVal}>{Object.values(assignments).filter(Boolean).length}</Text>
-                        <Text style={styles.kpiLabel}>Yerleşen</Text>
-                    </View>
-                    <View style={styles.kpiCard}>
-                        <Text style={[styles.kpiVal, { color: violations.length ? '#DC2626' : '#16A34A' }]}>{violations.length}</Text>
-                        <Text style={styles.kpiLabel}>Manuel Uyarı</Text>
+                    <View>
+                        <Text style={[styles.sceneDate, { fontWeight: 'bold' }]}>BiSınıf v2.5</Text>
+                        <Text style={styles.sceneDate}>{reportData.generatedAt}</Text>
                     </View>
                 </View>
-            </View>
-            {violations.length > 0 && (
-                <View style={styles.warningBox}>
-                    <Text style={{ fontSize: 10, fontWeight: 'bold', color: '#B91C1C', marginBottom: 5 }}>⚠️ Dikkat Edilmesi Gereken Hususlar</Text>
-                    {violations.map((v, i) => (
-                        <Text key={i} style={{ fontSize: 9, color: '#991B1B', marginBottom: 2 }}>• {v.message}</Text>
+
+                <SceneGrid
+                    setup={setup}
+                    assignments={assignments}
+                    students={students}
+                    violations={violations}
+                    pinnedSeats={assignments.pinnedSeatIds || []}
+                />
+                <View style={styles.legendBar}>
+                    <View style={styles.legendItem}>
+                        <View style={[styles.legendDot, { backgroundColor: THEME.primary }]} />
+                        <Text style={styles.legendLabel}>Özel Durum</Text>
+                    </View>
+                    <View style={styles.legendItem}>
+                        <View style={[styles.legendDot, { backgroundColor: '#F59E0B' }]} />
+                        <Text style={styles.legendLabel}>Kilitli</Text>
+                    </View>
+                    <View style={styles.legendItem}>
+                        <View style={[styles.legendDot, { backgroundColor: '#EF4444' }]} />
+                        <Text style={styles.legendLabel}>Uyarı</Text>
+                    </View>
+                </View>
+            </Page>
+
+            <Page size="A4" style={styles.page}>
+                <View style={styles.reportHeader}>
+                    <View>
+                        <Text style={styles.reportTitle}>
+                            {meta?.className ? `${meta.className}` : 'Sınıf'} Oturma Planı Raporu
+                        </Text>
+                        <Text style={styles.reportSub}>
+                            {meta?.schoolName} {meta?.teacherName ? `• ${meta.teacherName}` : ''}
+                        </Text>
+                        <Text style={{ fontSize: 9, color: '#94A3B8', marginTop: 4 }}>
+                            Pedagojik Gerekçe ve Analiz Raporu {meta?.term ? `• ${meta.term}` : ''}
+                        </Text>
+                    </View>
+                    <Text style={styles.reportSub}>BiSınıf v2.5</Text>
+                </View>
+                <View style={styles.sectionBox}>
+                    <View style={styles.sectionHeader}>
+                        <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: THEME.primary }} />
+                        <Text style={styles.sectionTitle}>Amaç ve Kapsam</Text>
+                    </View>
+                    <Text style={styles.bulletText}>{reportData.purpose}</Text>
+                </View>
+                <View style={styles.sectionBox}>
+                    <View style={styles.sectionHeader}>
+                        <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: THEME.primary }} />
+                        <Text style={styles.sectionTitle}>Uygulanan Kriterler</Text>
+                    </View>
+                    {reportData.criteria.map((c, i) => (
+                        <Text key={i} style={styles.bulletText}>• {c}</Text>
                     ))}
                 </View>
-            )}
-            <View style={styles.compactFooter}>
-                <Text style={styles.metaText}>BiSınıf Akıllı Sınıf Yönetim Sistemi</Text>
-                <Text style={styles.metaText}>{reportData.metadata.planId} | {reportData.metadata.hash}</Text>
-            </View>
-        </Page>
-    </Document>
-)
+                <View style={styles.sectionBox}>
+                    <View style={styles.sectionHeader}>
+                        <View style={{ width: 4, height: 4, borderRadius: 2, backgroundColor: THEME.primary }} />
+                        <Text style={styles.sectionTitle}>Oluşturma Özeti</Text>
+                    </View>
+                    <View style={styles.kpiRow}>
+                        <View style={styles.kpiCard}>
+                            <Text style={styles.kpiVal}>{students.length}</Text>
+                            <Text style={styles.kpiLabel}>Öğrenci</Text>
+                        </View>
+                        <View style={styles.kpiCard}>
+                            <Text style={styles.kpiVal}>{Object.values(assignments).filter(Boolean).length}</Text>
+                            <Text style={styles.kpiLabel}>Yerleşen</Text>
+                        </View>
+                        <View style={styles.kpiCard}>
+                            <Text style={[styles.kpiVal, { color: violations.length ? '#DC2626' : '#16A34A' }]}>{violations.length}</Text>
+                            <Text style={styles.kpiLabel}>Manuel Uyarı</Text>
+                        </View>
+                    </View>
+                </View>
+                {violations.length > 0 && (
+                    <View style={styles.warningBox}>
+                        <Text style={{ fontSize: 10, fontWeight: 'bold', color: '#B91C1C', marginBottom: 5 }}>⚠️ Dikkat Edilmesi Gereken Hususlar</Text>
+                        {violations.map((v, i) => (
+                            <Text key={i} style={{ fontSize: 9, color: '#991B1B', marginBottom: 2 }}>• {v.message}</Text>
+                        ))}
+                    </View>
+                )}
+                <View style={styles.compactFooter}>
+                    <Text style={styles.metaText}>BiSınıf Akıllı Sınıf Yönetim Sistemi</Text>
+                    <Text style={styles.metaText}>{reportData.metadata.planId} | {reportData.metadata.hash}</Text>
+                </View>
+            </Page>
+        </Document>
+    )
+}

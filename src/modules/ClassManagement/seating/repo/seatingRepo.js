@@ -198,5 +198,77 @@ export const seatingRepo = {
 
     // 6. UI Preference
     loadSelectedExamId: () => readStorage(SEATING_KEYS.selectedExam, null),
-    saveSelectedExamId: (id) => writeStorage(SEATING_KEYS.selectedExam, id)
+    saveSelectedExamId: (id) => writeStorage(SEATING_KEYS.selectedExam, id),
+
+    // 7. Cascading Delete Helper
+    removeStudentFromAllRecords: (studentId) => {
+        if (!studentId) return
+
+        // A. Active Plan
+        const plan = seatingRepo.loadPlan()
+        if (plan && plan.assignments) {
+            let planDirty = false
+            Object.entries(plan.assignments).forEach(([seatId, assignedStudentId]) => {
+                if (assignedStudentId === studentId) {
+                    delete plan.assignments[seatId]
+                    planDirty = true
+                    // Remove from pins if exists
+                    if (plan.pinnedSeatIds && plan.pinnedSeatIds.includes(seatId)) {
+                        plan.pinnedSeatIds = plan.pinnedSeatIds.filter(id => id !== seatId)
+                    }
+                }
+            })
+            if (planDirty) {
+                seatingRepo.savePlan(plan)
+            }
+        }
+
+        // B. History
+        const history = seatingRepo.loadHistory()
+        let historyDirty = false
+        const cleanedHistory = history.map(h => {
+            if (!h.layout) return h
+
+            let itemDirty = false
+            const newLayout = { ...h.layout }
+            let newPins = h.pinnedSeatIds ? [...h.pinnedSeatIds] : []
+
+            Object.entries(newLayout).forEach(([seatId, assignedId]) => {
+                if (assignedId === studentId) {
+                    delete newLayout[seatId]
+                    itemDirty = true
+                    // Unpin seat if it contained the deleted student
+                    if (newPins.includes(seatId)) {
+                        newPins = newPins.filter(id => id !== seatId)
+                    }
+                }
+            })
+
+            if (itemDirty) {
+                historyDirty = true
+                return { ...h, layout: newLayout, pinnedSeatIds: newPins, manualMoves: 0 } // Reset manual if altered? Maybe safest.
+            }
+            return h
+        })
+
+        if (historyDirty) {
+            writeStorage(SEATING_KEYS.history, cleanedHistory)
+        }
+
+        // C. Analytics Map (Manual pairings)
+        try {
+            const map = seatingRepo.loadAnalyticsMap()
+            let mapDirty = false
+            // Check keys (if studentId is key) and values (if studentId is value)
+            Object.keys(map).forEach(key => {
+                if (key === studentId || map[key] === studentId) {
+                    delete map[key]
+                    mapDirty = true
+                }
+            })
+            if (mapDirty) {
+                seatingRepo.saveAnalyticsMap(map)
+            }
+        } catch (e) { console.warn('Analytics map clean fail', e) }
+    }
 }

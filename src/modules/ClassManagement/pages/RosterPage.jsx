@@ -1,139 +1,255 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, memo } from 'react'
 import { classRepo } from '../repo/classRepo'
 import StudentImporter from '../../../components/StudentImporter'
-import { Trash2, Edit2, Search, GraduationCap } from 'lucide-react'
+import StudentEditorModal from '../components/StudentEditorModal'
+import ImportWizard from '../components/ImportWizard'
+import { Trash2, Edit2, Search, UserPlus, Filter, ArrowUpDown, X, MoreHorizontal, FileText } from 'lucide-react'
+
+// Memoized Item for Performance
+const StudentItem = memo(({ student, onEdit, onDelete }) => {
+    return (
+        <div className="group flex items-center justify-between p-4 bg-white border border-gray-100 rounded-xl hover:shadow-md transition-all hover:border-blue-200">
+            <div className="flex items-center gap-4">
+                {/* Avatar / Number */}
+                <div className={`
+                    w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg
+                    ${student.gender === 'K' ? 'bg-pink-50 text-pink-600' :
+                        student.gender === 'E' ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-500'}
+                `}>
+                    {student.schoolNo || '?'}
+                </div>
+
+                <div>
+                    <h4 className="font-bold text-gray-900 leading-tight">{student.fullName}</h4>
+                    <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs text-gray-400 font-medium tracking-wide">
+                            {student.studentNumber ? `#${student.studentNumber}` : 'NO YOK'}
+                        </span>
+                        {/* Tags Badges */}
+                        {student._profile?.tags?.slice(0, 3).map(t => (
+                            <span key={t} className="w-2 h-2 rounded-full bg-blue-400" title={t} />
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                    onClick={() => onEdit(student.id)}
+                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                    title="Düzenle"
+                >
+                    <Edit2 className="w-4 h-4" />
+                </button>
+                <button
+                    onClick={() => onDelete(student.id)}
+                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                    title="Sil"
+                >
+                    <Trash2 className="w-4 h-4" />
+                </button>
+            </div>
+        </div>
+    )
+})
 
 export default function RosterPage() {
     const [students, setStudents] = useState([])
     const [search, setSearch] = useState('')
 
-    const refresh = () => {
-        setStudents(classRepo.listRoster())
-    }
+    // Filters & Sort
+    const [filterGender, setFilterGender] = useState('ALL') // ALL, K, E
+    const [sortBy, setSortBy] = useState('NO_ASC') // NO_ASC, NAME_ASC
+
+    // Editor State
+    const [isEditorOpen, setEditorOpen] = useState(false)
+    const [isImportWizardOpen, setImportWizardOpen] = useState(false)
+    const [editTargetId, setEditTargetId] = useState(null)
+    const [showImporter, setShowImporter] = useState(false)
 
     useEffect(() => {
         refresh()
     }, [])
 
-    // Filter
+    const refresh = () => {
+        // Need to use getStudents to get Profile data (tags, gender correct merge)
+        setStudents(classRepo.getStudents())
+    }
+
     const filtered = useMemo(() => {
-        const term = search.toLowerCase()
-        return students.filter(s =>
-            (s.fullName || '').toLowerCase().includes(term) ||
-            (s.schoolNo || '').includes(term)
-        )
-    }, [students, search])
+        let result = students
+        const term = search.toLowerCase().trim()
+
+        // 1. Search
+        if (term) {
+            result = result.filter(s =>
+                (s.name || '').toLowerCase().includes(term) ||
+                (s.no || '').includes(term)
+            )
+        }
+
+        // 2. Filter
+        if (filterGender !== 'ALL') {
+            if (s.gender === filterGender) return true
+        }
+
+        // 3. Sort
+        result = [...result].sort((a, b) => {
+            if (sortBy === 'NAME_ASC') return (a.name || '').localeCompare(b.name || '')
+            if (sortBy === 'NO_ASC') {
+                // Try numeric sort
+                const nA = parseInt(a.no, 10)
+                const nB = parseInt(b.no, 10)
+                if (!isNaN(nA) && !isNaN(nB)) return nA - nB
+                return (a.no || '').localeCompare(b.no || '')
+            }
+            return 0
+        })
+
+        if (filterGender !== 'ALL') {
+            return result.filter(s => s.gender === filterGender)
+        }
+
+        return result
+    }, [students, search, filterGender, sortBy])
 
     const handleDelete = (id) => {
-        if (window.confirm('Bu öğrenciyi ana listeden silmek istediğinize emin misiniz?')) {
-            classRepo.removeRosterStudent(id)
+        if (window.confirm('Bu öğrenciyi ve ilişkili tüm verilerini (kısıtlamalar, geçmiş) silmek istediğinize emin misiniz?')) {
+            classRepo.deleteStudentCascade(id)
             refresh()
         }
     }
 
+    const openCreate = () => {
+        setEditTargetId(null)
+        setEditorOpen(true)
+    }
+
+    const openEdit = (id) => {
+        setEditTargetId(id)
+        setEditorOpen(true)
+    }
+
+    const handleSave = () => {
+        refresh()
+    }
+
     return (
-        <div className="pb-20 space-y-6 animate-fade-in">
+        <div className="pb-20 space-y-6 animate-fade-in relative min-h-[600px]">
 
-            {/* Top Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-[350px_1fr] gap-6 items-start">
+            {/* Header / Actions */}
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+                <div>
+                    <h1 className="text-xl font-bold text-gray-900">Öğrenci Yönetimi</h1>
+                    <p className="text-xs text-gray-500">Sınıf listesini düzenle, yeni kayıt ekle veya toplu yükle.</p>
+                </div>
+                <div className="flex gap-2">
+                    {/* CSV Import Trigger */}
+                    <button
+                        onClick={() => setImportWizardOpen(true)}
+                        className="px-4 py-2.5 rounded-xl font-semibold text-sm transition-all border bg-white border-gray-200 text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
+                        <FileText className="w-4 h-4 text-green-600" />
+                        CSV İçe Aktar
+                    </button>
 
-                {/* Left: Importer */}
-                <div className="space-y-6">
-                    <div className="bg-blue-600 rounded-3xl p-6 text-white shadow-lg overflow-hidden relative">
-                        <div className="absolute top-0 right-0 p-4 opacity-10">
-                            <GradingTableIcon className="w-32 h-32" />
-                        </div>
-                        <h2 className="text-xl font-bold mb-2 relative z-10">Sınıf Listesi</h2>
-                        <p className="text-blue-100 text-sm relative z-10 opacity-90">
-                            Tüm modüllerin kullandığı ana öğrenci kaynağıdır. Buraya eklenen öğrenciler sınav ve sınıf yönetimi ekranlarında görünür.
-                        </p>
-                    </div>
+                    <button
+                        onClick={() => setShowImporter(!showImporter)}
+                        className={`px-4 py-2.5 rounded-xl font-semibold text-sm transition-all border ${showImporter ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}
+                    >
+                        {showImporter ? 'E-Okul Sihirbazı' : 'E-Okul / Excel'}
+                    </button>
+                    <button
+                        onClick={openCreate}
+                        className="px-6 py-2.5 bg-gray-900 text-white font-bold rounded-xl hover:bg-gray-800 active:scale-95 transition-all flex items-center gap-2 text-sm shadow-lg shadow-gray-200"
+                    >
+                        <UserPlus className="w-4 h-4" />
+                        Yeni Öğrenci
+                    </button>
+                </div>
+            </div>
 
-                    <StudentImporter
-                        target="roster"
-                        onImport={refresh} // Refresh list after import
+            {/* Importer Panel */}
+            {showImporter && (
+                <div className="bg-blue-50/50 border border-blue-100 rounded-2xl p-6 animate-fade-in">
+                    <StudentImporter target="roster" onImport={() => { refresh(); setShowImporter(false) }} />
+                </div>
+            )}
+
+            {/* Filter Bar */}
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-3">
+                <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5" />
+                    <input
+                        type="text"
+                        placeholder="İsim veya numara ile ara..."
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:border-blue-500 hover:border-gray-300 transition-colors shadow-sm"
                     />
                 </div>
 
-                {/* Right: List */}
-                <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 min-h-[500px]">
-
-                    <div className="flex items-center justify-between mb-6">
-                        <h3 className="font-bold text-gray-900">Kayıtlı Öğrenciler ({filtered.length})</h3>
-
-                        <div className="relative w-64">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4" />
-                            <input
-                                type="text"
-                                placeholder="Ara..."
-                                value={search}
-                                onChange={e => setSearch(e.target.value)}
-                                className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-500"
-                            />
-                        </div>
-                    </div>
-
-                    <div className="overflow-hidden rounded-xl border border-gray-100">
-                        <table className="w-full text-sm text-left">
-                            <thead className="bg-gray-50 text-gray-500 font-medium">
-                                <tr>
-                                    <th className="px-4 py-3 w-20">No</th>
-                                    <th className="px-4 py-3">Ad Soyad</th>
-                                    <th className="px-4 py-3 w-24 text-right">İşlem</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-100">
-                                {filtered.length === 0 ? (
-                                    <tr>
-                                        <td colSpan="3" className="px-4 py-8 text-center text-gray-400 italic">
-                                            Liste boş. Yandaki panelden ekleme yapın.
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    filtered.map(s => (
-                                        <tr key={s.rosterId} className="hover:bg-blue-50/30 group transition-colors">
-                                            <td className="px-4 py-3 font-mono text-gray-500">{s.schoolNo || '-'}</td>
-                                            <td className="px-4 py-3 font-medium text-gray-900">{s.fullName}</td>
-                                            <td className="px-4 py-3 text-right">
-                                                <button
-                                                    onClick={() => handleDelete(s.rosterId)}
-                                                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                                                    title="Sil"
-                                                >
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-
+                <div className="flex bg-white rounded-xl border border-gray-200 p-1 shadow-sm">
+                    {['ALL', 'K', 'E'].map(g => (
+                        <button
+                            key={g}
+                            onClick={() => setFilterGender(g)}
+                            className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${filterGender === g ? 'bg-gray-100 text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                                }`}
+                        >
+                            {g === 'ALL' ? 'Tümü' : g === 'K' ? 'Kız' : 'Erkek'}
+                        </button>
+                    ))}
                 </div>
-            </div>
-        </div>
-    )
-}
 
-function GradingTableIcon(props) {
-    return (
-        <svg
-            {...props}
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-            <circle cx="9" cy="7" r="4" />
-            <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
-            <path d="M16 3.13a4 4 0 0 1 0 7.75" />
-        </svg>
+                <button
+                    onClick={() => setSortBy(prev => prev === 'NO_ASC' ? 'NAME_ASC' : 'NO_ASC')}
+                    className="px-4 py-2 bg-white border border-gray-200 rounded-xl text-gray-600 hover:text-gray-900 font-medium text-sm flex items-center gap-2 shadow-sm whitespace-nowrap"
+                >
+                    <ArrowUpDown className="w-4 h-4" />
+                    {sortBy === 'NO_ASC' ? 'Numaraya Göre' : 'İsme Göre'}
+                </button>
+            </div>
+
+            {/* List */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {filtered.map(s => (
+                    <StudentItem
+                        key={s.id}
+                        student={s}
+                        onEdit={openEdit}
+                        onDelete={handleDelete}
+                    />
+                ))}
+            </div>
+
+            {filtered.length === 0 && (
+                <div className="text-center py-20 text-gray-400">
+                    <Filter className="w-12 h-12 mx-auto mb-3 opacity-20" />
+                    <p>Kriterlere uygun sonuç bulunamadı.</p>
+                </div>
+            )}
+
+            {/* Floating Stats */}
+            <div className="fixed bottom-6 right-6 bg-gray-900 text-white px-4 py-2 rounded-full shadow-xl text-xs font-bold z-10">
+                {filtered.length} / {students.length} Öğrenci
+            </div>
+
+            {/* Modal */}
+            <StudentEditorModal
+                isOpen={isEditorOpen}
+                onClose={() => setEditorOpen(false)}
+                studentId={editTargetId}
+                onSave={handleSave}
+            />
+
+            {/* CSV Import Wizard */}
+            {isImportWizardOpen && (
+                <ImportWizard
+                    onClose={() => setImportWizardOpen(false)}
+                    onFinish={() => { refresh(); }}
+                />
+            )}
+        </div>
     )
 }

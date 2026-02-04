@@ -2,9 +2,28 @@ import React, { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { Users, Home, ChevronLeft, MoreVertical, Grid } from 'lucide-react'
 
+import { loadMeta } from '../storage/classStorage'
+
 const ClassHeader = ({ title = "Sınıf Yönetimi" }) => {
     const navigate = useNavigate()
     const location = useLocation()
+
+    // Load Meta for Display
+    const [metaDisplay, setMetaDisplay] = useState('')
+
+    useEffect(() => {
+        const meta = loadMeta() || {}
+        const parts = [meta.schoolName, meta.className, meta.teacherName]
+            .filter(Boolean) // Only valid strings
+            .map(s => s.trim())
+            .filter(s => s.length > 0)
+
+        if (parts.length > 0) {
+            setMetaDisplay(parts.join(' · '))
+        } else {
+            setMetaDisplay('')
+        }
+    }, [location]) // Re-check on Nav change in case settings updated
 
     // Check Root vs Sub-Page
     // Current Rule: 
@@ -84,8 +103,14 @@ const ClassHeader = ({ title = "Sınıf Yönetimi" }) => {
                 </Link>
             </div>
 
-            {/* Right Side: Cleaned up as requested */}
-            <div></div>
+            {/* Right Side: Class Info Output */}
+            <div className="hidden md:flex flex-col items-end">
+                {metaDisplay ? (
+                    <span className="text-xs font-medium text-gray-500 bg-white px-3 py-1.5 rounded-lg border border-gray-100 shadow-sm">
+                        {metaDisplay}
+                    </span>
+                ) : null}
+            </div>
         </header>
     )
 }

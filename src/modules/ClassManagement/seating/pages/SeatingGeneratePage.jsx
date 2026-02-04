@@ -385,6 +385,8 @@ export default function SeatingGeneratePage() {
 
         try {
             const rules = seatingRepo.loadRules()
+            const meta = classRepo.loadMeta() || {} // Load Meta
+
             // Re-calculate violations for the report to be sure
             const reportData = generateReportData({
                 stats,
@@ -398,6 +400,7 @@ export default function SeatingGeneratePage() {
                     students={students}
                     reportData={reportData}
                     violations={violations}
+                    meta={meta}
                 />
             )
 
