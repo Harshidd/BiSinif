@@ -5,6 +5,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Home from './pages/Home'
 import ExamAnalysis from './modules/ExamAnalysis'
 import ClassManagement from './modules/ClassManagement'
+import DenemeOkut from './modules/DenemeOkut'
 
 function App() {
   return (
@@ -18,6 +19,9 @@ function App() {
 
         {/* Class Management Module */}
         <Route path="/class/*" element={<ClassManagement />} />
+
+        {/* DenemeOkut Module (NEW) */}
+        <Route path="/deneme-okut/*" element={<DenemeOkut />} />
 
         {/* Redirects for legacy users if any specific subroutes existed, though mostly it was root */}
         <Route path="/analiz" element={<Navigate to="/exams" replace />} />

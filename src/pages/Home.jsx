@@ -1,6 +1,6 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { BarChart3, Users, ChevronRight, School } from 'lucide-react'
+import { BarChart3, Users, ChevronRight, School, Camera } from 'lucide-react'
 
 // Home Layout
 export default function Home() {
@@ -22,7 +22,7 @@ export default function Home() {
                 </div>
 
                 {/* Module Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 lg:gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
 
                     {/* Card 1: Exam Analysis */}
                     <Link
@@ -74,6 +74,33 @@ export default function Home() {
 
                             <div className="flex items-center text-emerald-600 font-semibold group-hover:translate-x-1 transition-transform">
                                 Yönet <ChevronRight className="w-5 h-5 ml-1" />
+                            </div>
+                        </div>
+                    </Link>
+
+                    {/* Card 3: Deneme Okut */}
+                    <Link
+                        to="/deneme-okut"
+                        className="group relative bg-white rounded-3xl p-8 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border border-gray-100 overflow-hidden"
+                    >
+                        <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+                            <Camera className="w-32 h-32" />
+                        </div>
+
+                        <div className="flex flex-col h-full">
+                            <div className="w-14 h-14 bg-purple-50 rounded-2xl flex items-center justify-center mb-6 text-purple-600 group-hover:scale-110 transition-transform duration-300">
+                                <Camera className="w-7 h-7" />
+                            </div>
+
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                                Deneme Okut
+                            </h2>
+                            <p className="text-gray-500 mb-8 flex-1">
+                                Optik form okuma ve hızlı deneme değerlendirme.
+                            </p>
+
+                            <div className="flex items-center text-purple-600 font-semibold group-hover:translate-x-1 transition-transform">
+                                Başla <ChevronRight className="w-5 h-5 ml-1" />
                             </div>
                         </div>
                     </Link>

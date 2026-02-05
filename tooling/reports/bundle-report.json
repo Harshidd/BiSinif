@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-02-05T22:24:29.024Z",
+  "thresholdKb": 900,
+  "largestChunk": {
+    "file": "index-ZAGmh6az.js",
+    "sizeKb": 2923.54,
+    "type": "js"
+  },
+  "allChunksTop10": [
+    {
+      "file": "index-ZAGmh6az.js",
+      "sizeKb": 2923.54,
+      "type": "js"
+    }
+  ]
+}
