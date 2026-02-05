@@ -1,11 +1,13 @@
 import React from 'react'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 
-// Pages & Modules
-import Home from './pages/Home'
-import ExamAnalysis from './modules/ExamAnalysis'
-import ClassManagement from './modules/ClassManagement'
-import DenemeOkut from './modules/DenemeOkut'
+// Pages & Modules (Lazy)
+import { createLazyRoute } from './core/routing/lazy'
+
+const Home = createLazyRoute(() => import('./pages/Home'))
+const ExamAnalysis = createLazyRoute(() => import('./modules/ExamAnalysis'))
+const ClassManagement = createLazyRoute(() => import('./modules/ClassManagement'))
+const DenemeOkut = createLazyRoute(() => import('./modules/DenemeOkut'))
 
 function App() {
   return (
