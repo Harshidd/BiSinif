@@ -13,4 +13,50 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
   },
+  build: {
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            // 1. Core Framework (Highest Priority)
+            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('react-router') || id.includes('/scheduler/') || id.includes('react-is') || id.includes('prop-types')) {
+              return 'vendor-react'
+            }
+            if (id === 'react' || id === 'react-dom') return 'vendor-react'
+
+            // 2. Heavy PDF/Image Libs
+            if (id.includes('@react-pdf') || id.includes('jspdf') || id.includes('html2canvas') || id.includes('canvg') || id.includes('dompurify')) {
+              return 'vendor-pdf'
+            }
+
+            // 3. Excel/Data Processing
+            if (id.includes('xlsx') || id.includes('exceljs')) {
+              return 'vendor-excel'
+            }
+
+            // 4. Charts
+            if (id.includes('recharts') || id.includes('d3-') || id.includes('victory')) {
+              return 'vendor-charts'
+            }
+
+            // 5. UI & Icons
+            if (id.includes('lucide') || id.includes('@dnd-kit') || id.includes('clsx') || id.includes('tailwind-merge') || id.includes('@radix-ui')) {
+              return 'vendor-ui'
+            }
+
+            // 6. App Core (State, DB, Utils)
+            if (id.includes('dexie') || id.includes('zustand') || id.includes('zod') || id.includes('uuid') || id.includes('@capacitor') || id.includes('axios')) {
+              return 'vendor-core'
+            }
+
+            // 7. Remainder
+            return 'vendor-libs'
+          }
+
+          // SRC MODULES: Removed manual forcing to allow dynamic imports to handle circular shared code naturally.
+        }
+      }
+    }
+  }
 })

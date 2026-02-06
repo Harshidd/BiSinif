@@ -8,6 +8,9 @@
  */
 
 import { z } from 'zod'
+import { TemplateSchema } from './templateSchema'
+
+export { TemplateSchema, type Template } from './templateSchema'
 
 // ============================================
 // ANSWER CHOICE SCHEMA
@@ -24,6 +27,7 @@ export const DenemeOkutExamSchema = z.object({
     title: z.string().min(1).max(200),
     templateId: z.string().min(1),
     templateVersion: z.number().int().positive(),
+    templateName: z.string().min(1), // Denormalized for display
     answerKey: z.record(z.coerce.number().int().positive(), AnswerChoiceSchema),
     questionCount: z.number().int().positive().max(200),
     createdAt: z.string().datetime(),
