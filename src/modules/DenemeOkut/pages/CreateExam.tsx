@@ -1,13 +1,84 @@
 /**
- * DenemeOkut Module - Create Exam Page (Placeholder)
+ * DenemeOkut Module - Create Exam Page
  */
 
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, AlertCircle, Check } from 'lucide-react'
+import { v4 as uuidv4 } from 'uuid'
+import { templateRegistry } from '../services/templateRegistry'
+import { db } from '../db'
+import type { Template } from '../schemas/templateSchema'
 
 export default function CreateExam() {
     const navigate = useNavigate()
+
+    // State
+    const [title, setTitle] = useState('')
+    const [selectedTemplateId, setSelectedTemplateId] = useState('')
+    const [templates, setTemplates] = useState<Template[]>([])
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+
+    // Load templates on mount
+    useEffect(() => {
+        try {
+            const all = templateRegistry.getAllTemplates()
+            setTemplates(all)
+            if (all.length > 0) {
+                // Default select first? Or force user choice? Let's force choice for clarity or default to 0
+                // setSelectedTemplateId(all[0].templateId) 
+            }
+        } catch (err) {
+            console.error('Failed to load templates:', err)
+            setError('Şablonlar yüklenirken hata oluştu.')
+        }
+    }, [])
+
+    const handleSubmit = async () => {
+        if (!title.trim()) {
+            setError('Lütfen bir deneme adı girin.')
+            return
+        }
+        if (!selectedTemplateId) {
+            setError('Lütfen bir optik form şablonu seçin.')
+            return
+        }
+
+        const template = templates.find(t => t.templateId === selectedTemplateId)
+        if (!template) {
+            setError('Seçilen şablon geçersiz.')
+            return
+        }
+
+        setLoading(true)
+        setError(null)
+
+        try {
+            const newExamId = uuidv4()
+            const now = new Date().toISOString()
+
+            await db.addExam({
+                id: newExamId,
+                title: title.trim(),
+                templateId: template.templateId,
+                templateVersion: template.version,
+                templateName: template.name,
+                questionCount: template.questionCount,
+                answerKey: {}, // Empty for now, to be filled later
+                createdAt: now,
+                updatedAt: now
+            })
+
+            console.log(`[CreateExam] Created exam ${newExamId} with template ${template.name}`)
+            navigate('/deneme-okut/denemeler')
+        } catch (err: any) {
+            console.error('Failed to create exam:', err)
+            setError(err.message || 'Deneme oluşturulurken bir hata oluştu.')
+        } finally {
+            setLoading(false)
+        }
+    }
 
     return (
         <div className="min-h-screen bg-gray-50 p-6">
@@ -23,66 +94,87 @@ export default function CreateExam() {
 
                 <div className="mb-8">
                     <h1 className="text-3xl font-bold text-gray-900 mb-2">Yeni Deneme Oluştur</h1>
-                    <p className="text-gray-600">Deneme bilgilerini girin ve cevap anahtarını tanımlayın</p>
+                    <p className="text-gray-600">Deneme sınavı oluşturun ve optik form şablonunu seçin.</p>
                 </div>
 
-                {/* Form Placeholder */}
+                {/* Form */}
                 <div className="bg-white rounded-xl p-8 shadow-sm border border-gray-100">
                     <div className="space-y-6">
+
+                        {/* Error Banner */}
+                        {error && (
+                            <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg flex items-center gap-3">
+                                <AlertCircle className="w-5 h-5" />
+                                <span className="text-sm font-medium">{error}</span>
+                            </div>
+                        )}
+
+                        {/* Title Input */}
                         <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">Deneme Adı</label>
                             <input
                                 type="text"
-                                placeholder="Örn: Matematik 1. Deneme"
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                disabled
+                                value={title}
+                                onChange={(e) => setTitle(e.target.value)}
+                                placeholder="Örn: 8. Sınıf LGS Deneme 1"
+                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all outline-none"
                             />
                         </div>
 
+                        {/* Template Select */}
                         <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Şablon</label>
-                            <select
-                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                disabled
-                            >
-                                <option>MEB 5 Seçenek - 20 Soru (A4)</option>
-                                <option>MEB 5 Seçenek - 40 Soru (A4)</option>
-                                <option>MEB 5 Seçenek - 80 Soru (A4)</option>
-                                <option>MEB 5 Seçenek - 100 Soru (A4)</option>
-                            </select>
+                            <label className="block text-sm font-medium text-gray-700 mb-3">Optik Form Şablonu</label>
+
+                            {templates.length === 0 ? (
+                                <div className="text-gray-500 italic text-sm">Şablonlar yükleniyor veya bulunamadı...</div>
+                            ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    {templates.map(t => (
+                                        <div
+                                            key={t.templateId}
+                                            onClick={() => setSelectedTemplateId(t.templateId)}
+                                            className={`
+                                                relative cursor-pointer p-4 rounded-xl border-2 transition-all flex flex-col gap-1
+                                                ${selectedTemplateId === t.templateId
+                                                    ? 'border-blue-600 bg-blue-50'
+                                                    : 'border-gray-100 hover:border-blue-200 hover:bg-gray-50'}
+                                            `}
+                                        >
+                                            <div className="font-bold text-gray-900">{t.name}</div>
+                                            <div className="text-xs text-gray-500 flex items-center gap-2">
+                                                <span className="bg-gray-200 px-2 py-0.5 rounded text-gray-700">{t.questionCount} Soru</span>
+                                                <span className="bg-gray-200 px-2 py-0.5 rounded text-gray-700">{t.layout.columns} Sütun</span>
+                                                <span>{t.choices.length} Seçenek</span>
+                                            </div>
+
+                                            {selectedTemplateId === t.templateId && (
+                                                <div className="absolute top-3 right-3 bg-blue-600 text-white rounded-full p-1">
+                                                    <Check className="w-3 h-3" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </div>
 
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Cevap Anahtarı</label>
-                            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                                <p className="text-sm text-gray-500 text-center">
-                                    Cevap anahtarı girişi sonraki PR'larda eklenecek
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="flex gap-4 pt-4">
+                        {/* Submit Actions */}
+                        <div className="flex gap-4 pt-6 border-t border-gray-100 mt-6">
                             <button
                                 onClick={() => navigate('/deneme-okut/denemeler')}
-                                className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                                className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
                             >
                                 İptal
                             </button>
                             <button
-                                className="flex-1 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                                disabled
+                                onClick={handleSubmit}
+                                disabled={loading}
+                                className="flex-1 px-6 py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                             >
-                                Oluştur
+                                {loading ? 'Oluşturuluyor...' : 'Oluştur'}
                             </button>
                         </div>
                     </div>
-                </div>
-
-                {/* PR-1 Notice */}
-                <div className="mt-8 bg-blue-50 border border-blue-200 rounded-xl p-4">
-                    <p className="text-sm text-blue-800">
-                        <strong>PR-1 Foundation:</strong> Form işlevselliği ve cevap anahtarı girişi sonraki PR'larda eklenecek.
-                    </p>
                 </div>
             </div>
         </div>
