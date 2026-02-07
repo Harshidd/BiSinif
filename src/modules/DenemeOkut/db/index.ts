@@ -98,6 +98,14 @@ export class DenemeOkutDB extends Dexie {
         return this.exams.orderBy('createdAt').reverse().limit(limit).toArray()
     }
 
+    async getExam(id: string): Promise<DenemeOkutExam | undefined> {
+        return this.exams.get(id)
+    }
+
+    async getAllExams(): Promise<DenemeOkutExam[]> {
+        return this.exams.toArray()
+    }
+
     async getScansByExam(examId: string): Promise<ScanJob[]> {
         return this.scans.where('examId').equals(examId).toArray()
     }
