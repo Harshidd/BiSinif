@@ -18,6 +18,7 @@ export interface DenemeOkutExam {
     title: string
     templateId: string
     templateVersion: number
+    templateName: string // Denormalized for display
     answerKey: Record<number, AnswerChoice> // {1: 'A', 2: 'B', ...}
     questionCount: number
     createdAt: string // ISO 8601

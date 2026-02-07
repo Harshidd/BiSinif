@@ -12,6 +12,17 @@ import { logger } from '../../../core/observability/logger'
 import { FatalModuleError } from '../components/FatalModuleError'
 import { db } from '../db'
 import type { DenemeOkutExamOutput } from '../schemas'
+import type { OmrResult } from '../services/omr/schema'
+
+// Helper
+const readFileAsDataURL = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = () => reject(new Error(reader.error?.message || 'File read failed'))
+        reader.readAsDataURL(file)
+    })
+}
 
 export default function ScanPage() {
     const navigate = useNavigate()
@@ -24,12 +35,17 @@ export default function ScanPage() {
     const [manualExams, setManualExams] = useState<DenemeOkutExamOutput[]>([])
     const [showManualSelect, setShowManualSelect] = useState(false)
     const [fatalError, setFatalError] = useState<{ message: string, details: string[] } | null>(null)
+    const [omrResults, setOmrResults] = useState<OmrResult | null>(null)
+    const [uploadedImage, setUploadedImage] = useState<string | null>(null)
 
     // Check Fatal State on Mount
     useEffect(() => {
         const fatal = templateRegistry.getFatalError()
         if (fatal) {
-            setFatalError(fatal)
+            setFatalError({
+                message: fatal.message,
+                details: fatal.details || []
+            })
         }
     }, [])
 
@@ -38,13 +54,17 @@ export default function ScanPage() {
         if (!file) return
 
         setProcessing(true)
-        setStatusMessage('QR kod aranıyor...')
+        setStatusMessage('Görsel işleniyor...')
         setShowManualSelect(false)
-
-        const startTime = performance.now()
+        setOmrResults(null)
 
         try {
+            // Await file reading to prevent race condition
+            const base64 = await readFileAsDataURL(file)
+            setUploadedImage(base64)
+
             // 1. Detect QR
+            setStatusMessage('QR kod aranıyor...')
             const qrPayload = await detectQRCodeFromImage(file)
 
             if (qrPayload) {
@@ -58,7 +78,6 @@ export default function ScanPage() {
                     logger.info('ScanPage', 'Exam Auto-Selected via QR', { title: exam.title })
                 } else {
                     setStatusMessage('QR okundu ancak bu deneme cihazda bulunamadı.')
-                    // Fallback to manual
                     loadManualExams()
                 }
             } else {
@@ -66,14 +85,51 @@ export default function ScanPage() {
                 setStatusMessage('Görselde QR kod bulunamadı. Lütfen elle seçim yapın.')
                 loadManualExams()
             }
-        } catch (err: any) {
-            logger.error('ScanPage', 'Processing Failed', { error: err })
-            setStatusMessage('İşlem sırasında bir hata oluştu: ' + err.message)
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err)
+            logger.error('ScanPage', 'Processing Failed', { error: msg })
+            setStatusMessage('İşlem sırasında bir hata oluştu: ' + msg)
             loadManualExams()
         } finally {
             setProcessing(false)
             // Reset input so same file can be selected again if needed
             if (fileInputRef.current) fileInputRef.current.value = ''
+        }
+    }
+
+    // Trigger OMR
+    const startOmrScan = async () => {
+        if (!selectedExam) {
+            setStatusMessage('Lütfen önce bir deneme seçin.')
+            return
+        }
+        if (!uploadedImage) {
+            setStatusMessage('Lütfen bir görsel yükleyin.')
+            return
+        }
+
+        setProcessing(true)
+        setStatusMessage('Optik form taranıyor...')
+
+        try {
+            const { omrService } = await import('../services/omr/pipeline')
+
+            const results = await omrService.process({
+                imageUrl: uploadedImage,
+                templateId: selectedExam.templateId,
+                examId: selectedExam.id
+            })
+
+            // Cast result to distinct type
+            setOmrResults(results)
+            setStatusMessage(`Tarama Tamamlandı! Skor: ${results.rawScore}`)
+
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err)
+            logger.error('OMR', 'Scan Failed', { error: msg })
+            setStatusMessage('Tarama hatası: ' + msg)
+        } finally {
+            setProcessing(false)
         }
     }
 
@@ -121,15 +177,40 @@ export default function ScanPage() {
                         <p className="text-green-300/80 text-sm mb-4">
                             {selectedExam.questionCount} Soru • {selectedExam.templateName}
                         </p>
-                        <button
-                            className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg w-full transition-colors font-medium"
-                            onClick={() => alert(`Başlatılıyor: ${selectedExam.id}`)} // Placeholder for next PR
-                        >
-                            Taramayı Başlat
-                        </button>
+
+                        {!omrResults && !processing && (
+                            <button
+                                className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg w-full transition-colors font-medium mb-3"
+                                onClick={startOmrScan}
+                            >
+                                Taramayı Başlat
+                            </button>
+                        )}
+
+                        {processing && (
+                            <div className="py-4">
+                                <Loader2 className="w-8 h-8 text-green-400 animate-spin mx-auto mb-2" />
+                                <p className="text-green-300 text-sm">{statusMessage}</p>
+                            </div>
+                        )}
+
+                        {omrResults && (
+                            <div className="bg-black/40 p-4 rounded-lg text-left mt-4 border border-green-500/30">
+                                <div className="text-green-400 font-bold mb-2">SONUÇ: {omrResults.status}</div>
+                                <div className="text-sm text-gray-300">
+                                    <p>Öğrenci: {omrResults.studentId}</p>
+                                    <p>Puan: {omrResults.rawScore}</p>
+                                    <p>Süre: {Math.round(omrResults.processingTimeMs)}ms</p>
+                                </div>
+                                <div className="mt-2 text-xs text-gray-500">
+                                    Cevaplar: {omrResults.answers.map((a: any) => a.markedOption || '-').join('')}
+                                </div>
+                            </div>
+                        )}
+
                         <button
                             className="mt-3 text-sm text-green-400 hover:text-green-300"
-                            onClick={() => { setSelectedExam(null); setStatusMessage(null); }}
+                            onClick={() => { setSelectedExam(null); setStatusMessage(null); setOmrResults(null); }}
                         >
                             Farklı Seçim Yap
                         </button>
