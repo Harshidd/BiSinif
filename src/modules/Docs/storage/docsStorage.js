@@ -1,0 +1,71 @@
+
+// Docs Module Storage Access
+// Manages Docs-owned context (independent of global class selection)
+// SSOT: src/core/storage/docsKeys.js
+
+import { DOCS_KEYS } from '../../../core/storage/docsKeys'
+import { KEY_MAP } from '../../../core/storage/classKeys'
+
+const KEYS = {
+    // Primary: Docs-owned context
+    DOCS_CONTEXT: DOCS_KEYS.CONTEXT,
+
+    // Fallback/Import Source: Global ClassManagement meta
+    // Used ONLY for "Import from Class" action, never auto-sync
+    GLOBAL_META: KEY_MAP.META
+}
+
+// Read helper with error handling
+const readStorage = (key, defaultValue) => {
+    try {
+        if (typeof window === 'undefined') return defaultValue
+        const raw = localStorage.getItem(key)
+        if (!raw) return defaultValue
+        return JSON.parse(raw)
+    } catch (error) {
+        console.warn(`[DocsStorage] Failed to read ${key}:`, error)
+        return defaultValue
+    }
+}
+
+// Write helper with event dispatch for reactivity
+const writeStorage = (key, value) => {
+    try {
+        const serialized = JSON.stringify(value)
+        localStorage.setItem(key, serialized)
+
+        // Dispatch storage event for cross-tab/local updates
+        window.dispatchEvent(new Event('storage'))
+        return true
+    } catch (error) {
+        console.warn(`[DocsStorage] Failed to write ${key}:`, error)
+        return false
+    }
+}
+
+// 1. Load Docs Context (Primary)
+export const loadMeta = () => readStorage(KEYS.DOCS_CONTEXT, {})
+
+// 2. Save Docs Context (Docs ONLY)
+export const saveMeta = (meta) => writeStorage(KEYS.DOCS_CONTEXT, meta)
+
+// 3. Import from Global (One-time action)
+// Copies current ClassManagement metadata into Docs context
+export const importGlobalMeta = () => {
+    const globalMeta = readStorage(KEYS.GLOBAL_META, {})
+    // Only copy relevant fields to avoid pollution
+    const cleanMeta = {
+        schoolName: globalMeta.schoolName || '',
+        className: globalMeta.className || '',
+        teacherName: globalMeta.teacherName || '',
+        year: globalMeta.year || '',
+        term: globalMeta.term || ''
+    }
+    return saveMeta(cleanMeta)
+}
+
+// 4. Helper: Check if global has valid data to import
+export const hasGlobalMeta = () => {
+    const globalMeta = readStorage(KEYS.GLOBAL_META, {})
+    return !!(globalMeta.schoolName && globalMeta.className)
+}
