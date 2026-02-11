@@ -7,6 +7,7 @@ import { createLazyRoute } from './core/routing/lazy'
 const Home = createLazyRoute(() => import('./pages/Home'))
 const ExamAnalysis = createLazyRoute(() => import('./modules/ExamAnalysis'))
 const ClassManagement = createLazyRoute(() => import('./modules/ClassManagement'))
+const Docs = createLazyRoute(() => import('./modules/Docs'))
 const DenemeOkut = createLazyRoute(() => import('./modules/DenemeOkut'))
 
 function App() {
@@ -21,6 +22,9 @@ function App() {
 
         {/* Class Management Module */}
         <Route path="/class/*" element={<ClassManagement />} />
+
+        {/* Docs Module (NEW) */}
+        <Route path="/docs/*" element={<Docs />} />
 
         {/* DenemeOkut Module (NEW) */}
         <Route path="/deneme-okut/*" element={<DenemeOkut />} />

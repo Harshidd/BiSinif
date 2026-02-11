@@ -1,6 +1,6 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
-import { BarChart3, Users, ChevronRight, School, Camera } from 'lucide-react'
+import { BarChart3, Users, ChevronRight, School, Camera, FileText } from 'lucide-react'
 
 // Home Layout
 export default function Home() {
@@ -101,6 +101,36 @@ export default function Home() {
 
                             <div className="flex items-center text-purple-600 font-semibold group-hover:translate-x-1 transition-transform">
                                 Başla <ChevronRight className="w-5 h-5 ml-1" />
+                            </div>
+                        </div>
+                    </Link>
+
+                    {/* Card 4: Documentation & Plans */}
+                    <Link
+                        to="/docs"
+                        className="group relative bg-white rounded-3xl p-8 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 border border-gray-100 overflow-hidden"
+                    >
+                        <div className="absolute top-0 right-0 p-8 opacity-5 group-hover:opacity-10 transition-opacity">
+                            <FileText className="w-32 h-32" />
+                        </div>
+                        <div className="absolute top-6 right-6">
+                            <span className="px-3 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full border border-green-200 shadow-sm">YENİ</span>
+                        </div>
+
+                        <div className="flex flex-col h-full">
+                            <div className="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mb-6 text-indigo-600 group-hover:scale-110 transition-transform duration-300">
+                                <FileText className="w-7 h-7" />
+                            </div>
+
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                                Evrak & Plan
+                            </h2>
+                            <p className="text-gray-500 mb-8 flex-1">
+                                Tutanak, plan ve kontrol formlarını otomatik üretin ve yönetin.
+                            </p>
+
+                            <div className="flex items-center text-indigo-600 font-semibold group-hover:translate-x-1 transition-transform">
+                                Oluştur <ChevronRight className="w-5 h-5 ml-1" />
                             </div>
                         </div>
                     </Link>
